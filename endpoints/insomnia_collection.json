@@ -1,0 +1,224 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-11-08T10:25:00.000Z",
+  "__export_source": "insomnia.desktop.app",
+  "resources": [
+    {
+      "_id": "wrk_customers_orders_api",
+      "parentId": null,
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "name": "Customers and Orders Microservices",
+      "description": "API collection for Customer Service, Order Service, and Order History Service",
+      "scope": "collection",
+      "_type": "workspace"
+    },
+    {
+      "_id": "env_base_env",
+      "parentId": "wrk_customers_orders_api",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "name": "Base Environment",
+      "data": {
+        "customer_service_url": "http://localhost:8082",
+        "order_service_url": "http://localhost:8081",
+        "order_history_service_url": "http://localhost:8083"
+      },
+      "dataPropertyOrder": {
+        "&": ["customer_service_url", "order_service_url", "order_history_service_url"]
+      },
+      "color": null,
+      "isPrivate": false,
+      "metaSortKey": 1700000000000,
+      "_type": "environment"
+    },
+    {
+      "_id": "fld_customer_service",
+      "parentId": "wrk_customers_orders_api",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "name": "Customer Service (:8082)",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 1,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_create_customer",
+      "parentId": "fld_customer_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.customer_service_url }}/customers",
+      "name": "Create Customer",
+      "description": "Creates a new customer with a given credit limit",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"John Doe\",\n  \"creditLimit\": {\n    \"amount\": 1000\n  }\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "metaSortKey": 1,
+      "_type": "request"
+    },
+    {
+      "_id": "req_get_all_customers",
+      "parentId": "fld_customer_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.customer_service_url }}/customers",
+      "name": "Get All Customers",
+      "description": "Returns list of all customers",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "metaSortKey": 2,
+      "_type": "request"
+    },
+    {
+      "_id": "req_get_customer_by_id",
+      "parentId": "fld_customer_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.customer_service_url }}/customers/1",
+      "name": "Get Customer by ID",
+      "description": "Returns single customer details",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "metaSortKey": 3,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_order_service",
+      "parentId": "wrk_customers_orders_api",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "name": "Order Service (:8081)",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 2,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_create_order",
+      "parentId": "fld_order_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.order_service_url }}/orders",
+      "name": "Create Order",
+      "description": "Triggers the saga to reserve credit and approve the order",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"customerId\": 1,\n  \"orderTotal\": {\n    \"amount\": 150\n  }\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "metaSortKey": 1,
+      "_type": "request"
+    },
+    {
+      "_id": "req_get_all_orders",
+      "parentId": "fld_order_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.order_service_url }}/orders",
+      "name": "Get All Orders",
+      "description": "Returns list of all orders",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "metaSortKey": 2,
+      "_type": "request"
+    },
+    {
+      "_id": "req_get_order_by_id",
+      "parentId": "fld_order_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.order_service_url }}/orders/1",
+      "name": "Get Order by ID",
+      "description": "Returns order details including state (APPROVED, REJECTED, etc.)",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "metaSortKey": 3,
+      "_type": "request"
+    },
+    {
+      "_id": "req_cancel_order",
+      "parentId": "fld_order_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.order_service_url }}/orders/1/cancel",
+      "name": "Cancel Order",
+      "description": "Cancels an existing order",
+      "method": "POST",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "metaSortKey": 4,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_order_history_service",
+      "parentId": "wrk_customers_orders_api",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "name": "Order History Service (:8083)",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 3,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_get_order_history",
+      "parentId": "fld_order_history_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.order_history_service_url }}/customers/1/orderhistory",
+      "name": "Get Customer Order History (CQRS)",
+      "description": "Returns the denormalized customer view with all associated orders from MongoDB",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "metaSortKey": 1,
+      "_type": "request"
+    },
+    {
+      "_id": "req_get_customers_count",
+      "parentId": "fld_order_history_service",
+      "modified": 1700000000000,
+      "created": 1700000000000,
+      "url": "{{ _.order_history_service_url }}/customers/count",
+      "name": "Get Customer Count",
+      "description": "Returns the count of customers stored in the query view database",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "metaSortKey": 2,
+      "_type": "request"
+    }
+  ]
+}
