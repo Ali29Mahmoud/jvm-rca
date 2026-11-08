@@ -1,13 +1,15 @@
-# API Endpoints Summary
+# API Endpoints Summary (API Gateway)
 
-Base URLs (when running Docker Compose):
-- **Customer Service**: `http://localhost:8082`
-- **Order Service**: `http://localhost:8081`
-- **Order History Service**: `http://localhost:8083`
+All client requests are routed through the **API Gateway**:
+- **Port-forward command**:
+  ```bash
+  kubectl port-forward svc/api-gateway-service -n eventuate-tram-examples-customers-and-orders 8080:8080
+  ```
+- **Gateway Base URL**: `http://localhost:8080`
 
 ---
 
-## 1. Customer Service (`http://localhost:8082`)
+## 1. Customer Service (via Gateway: `http://localhost:8080`)
 
 ### 1.1 Create Customer
 - **Method**: `POST`
@@ -54,7 +56,7 @@ Base URLs (when running Docker Compose):
 
 ---
 
-## 2. Order Service (`http://localhost:8081`)
+## 2. Order Service (via Gateway: `http://localhost:8080`)
 
 ### 2.1 Create Order (Triggers Saga)
 - **Method**: `POST`
@@ -83,25 +85,20 @@ Base URLs (when running Docker Compose):
   ```json
   {
     "orderId": 1,
-    "state": "APPROVED",
+    "orderState": "APPROVED",
     "rejectionReason": null
   }
   ```
   *(Possible states: `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED`)*
 
-### 2.3 Cancel Order
-- **Method**: `POST`
-- **Endpoint**: `/orders/{orderId}/cancel`
-- **Response**: `200 OK`
-
-### 2.4 Get All Orders
+### 2.3 Get All Orders
 - **Method**: `GET`
 - **Endpoint**: `/orders`
 - **Response**: `200 OK`
 
 ---
 
-## 3. Order History Service (CQRS) (`http://localhost:8083`)
+## 3. Order History Service (CQRS) (via Gateway: `http://localhost:8080`)
 
 ### 3.1 Get Customer Order History
 - **Method**: `GET`
@@ -116,6 +113,7 @@ Base URLs (when running Docker Compose):
     },
     "orders": {
       "1": {
+        "orderId": 1,
         "orderTotal": {
           "amount": 150
         },
@@ -124,8 +122,3 @@ Base URLs (when running Docker Compose):
     }
   }
   ```
-
-### 3.2 Get Customer Count
-- **Method**: `GET`
-- **Endpoint**: `/customers/count`
-- **Response**: `200 OK` (count as integer)

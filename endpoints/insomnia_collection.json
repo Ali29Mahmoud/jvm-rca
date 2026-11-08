@@ -1,7 +1,7 @@
 {
   "_type": "export",
   "__export_format": 4,
-  "__export_date": "2026-11-08T10:25:00.000Z",
+  "__export_date": "2026-11-08T11:55:00.000Z",
   "__export_source": "insomnia.desktop.app",
   "resources": [
     {
@@ -10,7 +10,7 @@
       "modified": 1700000000000,
       "created": 1700000000000,
       "name": "Customers and Orders Microservices",
-      "description": "API collection for Customer Service, Order Service, and Order History Service",
+      "description": "API collection for Customer Service, Order Service, and Order History Service routed via API Gateway",
       "scope": "collection",
       "_type": "workspace"
     },
@@ -21,12 +21,10 @@
       "created": 1700000000000,
       "name": "Base Environment",
       "data": {
-        "customer_service_url": "http://localhost:8082",
-        "order_service_url": "http://localhost:8081",
-        "order_history_service_url": "http://localhost:8083"
+        "gateway_url": "http://localhost:8080"
       },
       "dataPropertyOrder": {
-        "&": ["customer_service_url", "order_service_url", "order_history_service_url"]
+        "&": ["gateway_url"]
       },
       "color": null,
       "isPrivate": false,
@@ -38,7 +36,7 @@
       "parentId": "wrk_customers_orders_api",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "name": "Customer Service (:8082)",
+      "name": "Customer Service (via Gateway)",
       "description": "",
       "environment": {},
       "environmentPropertyOrder": null,
@@ -50,7 +48,7 @@
       "parentId": "fld_customer_service",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "url": "{{ _.customer_service_url }}/customers",
+      "url": "{{ _.gateway_url }}/customers",
       "name": "Create Customer",
       "description": "Creates a new customer with a given credit limit",
       "method": "POST",
@@ -73,7 +71,7 @@
       "parentId": "fld_customer_service",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "url": "{{ _.customer_service_url }}/customers",
+      "url": "{{ _.gateway_url }}/customers",
       "name": "Get All Customers",
       "description": "Returns list of all customers",
       "method": "GET",
@@ -88,7 +86,7 @@
       "parentId": "fld_customer_service",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "url": "{{ _.customer_service_url }}/customers/1",
+      "url": "{{ _.gateway_url }}/customers/1",
       "name": "Get Customer by ID",
       "description": "Returns single customer details",
       "method": "GET",
@@ -103,7 +101,7 @@
       "parentId": "wrk_customers_orders_api",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "name": "Order Service (:8081)",
+      "name": "Order Service (via Gateway)",
       "description": "",
       "environment": {},
       "environmentPropertyOrder": null,
@@ -115,7 +113,7 @@
       "parentId": "fld_order_service",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "url": "{{ _.order_service_url }}/orders",
+      "url": "{{ _.gateway_url }}/orders",
       "name": "Create Order",
       "description": "Triggers the saga to reserve credit and approve the order",
       "method": "POST",
@@ -138,7 +136,7 @@
       "parentId": "fld_order_service",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "url": "{{ _.order_service_url }}/orders",
+      "url": "{{ _.gateway_url }}/orders",
       "name": "Get All Orders",
       "description": "Returns list of all orders",
       "method": "GET",
@@ -153,7 +151,7 @@
       "parentId": "fld_order_service",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "url": "{{ _.order_service_url }}/orders/1",
+      "url": "{{ _.gateway_url }}/orders/1",
       "name": "Get Order by ID",
       "description": "Returns order details including state (APPROVED, REJECTED, etc.)",
       "method": "GET",
@@ -164,26 +162,11 @@
       "_type": "request"
     },
     {
-      "_id": "req_cancel_order",
-      "parentId": "fld_order_service",
-      "modified": 1700000000000,
-      "created": 1700000000000,
-      "url": "{{ _.order_service_url }}/orders/1/cancel",
-      "name": "Cancel Order",
-      "description": "Cancels an existing order",
-      "method": "POST",
-      "body": {},
-      "parameters": [],
-      "headers": [],
-      "metaSortKey": 4,
-      "_type": "request"
-    },
-    {
       "_id": "fld_order_history_service",
       "parentId": "wrk_customers_orders_api",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "name": "Order History Service (:8083)",
+      "name": "Order History Service (via Gateway)",
       "description": "",
       "environment": {},
       "environmentPropertyOrder": null,
@@ -195,7 +178,7 @@
       "parentId": "fld_order_history_service",
       "modified": 1700000000000,
       "created": 1700000000000,
-      "url": "{{ _.order_history_service_url }}/customers/1/orderhistory",
+      "url": "{{ _.gateway_url }}/customers/1/orderhistory",
       "name": "Get Customer Order History (CQRS)",
       "description": "Returns the denormalized customer view with all associated orders from MongoDB",
       "method": "GET",
@@ -203,21 +186,6 @@
       "parameters": [],
       "headers": [],
       "metaSortKey": 1,
-      "_type": "request"
-    },
-    {
-      "_id": "req_get_customers_count",
-      "parentId": "fld_order_history_service",
-      "modified": 1700000000000,
-      "created": 1700000000000,
-      "url": "{{ _.order_history_service_url }}/customers/count",
-      "name": "Get Customer Count",
-      "description": "Returns the count of customers stored in the query view database",
-      "method": "GET",
-      "body": {},
-      "parameters": [],
-      "headers": [],
-      "metaSortKey": 2,
       "_type": "request"
     }
   ]
