@@ -1,3 +1,5 @@
 #! /bin/bash -e
 
-docker run --network=${PWD##*/}_default --rm  eventuateio/eventuate-kafka:${EVENTUATE_MESSAGING_KAFKA_IMAGE_VERSION?} sh -c "exec kafka-topics --bootstrap-server kafka:29092 $*"
+docker exec -it jvm-rca-kafka-1 /usr/local/kafka_2.13-3.2.3/bin/kafka-topics.sh --bootstrap-server kafka:29092 "$@"
+
+
