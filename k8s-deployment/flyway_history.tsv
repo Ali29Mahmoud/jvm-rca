@@ -1,0 +1,4 @@
+1	1	eventuate postgres	SQL	V1__eventuate_postgres.sql	-1097379770	eventuate	2026-11-08 10:10:05.461251	12	t
+2	2	tram database postgres	SQL	V2__tram_database_postgres.sql	1234772164	eventuate	2026-11-08 10:10:05.519661	4	t
+3	3	eventuate postgres wal	SQL	V3__eventuate_postgres_wal.sql	-168390987	eventuate	2026-11-08 10:10:05.537347	8	t
+4	1005	MyMigration	JDBC	io.eventuate.tram.spring.flyway.V1005__MyMigration	\N	eventuate	2026-11-08 10:10:05.552783	10	t
