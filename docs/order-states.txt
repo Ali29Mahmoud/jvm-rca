@@ -1,0 +1,6 @@
+  state   | count 
+----------+-------
+ APPROVED | 12000
+(1 row)
+START_MAX_ID=36576
+END_MAX_ID=48576

@@ -23,4 +23,13 @@ VALUES
 (2, '2', 'tram database postgres', 'SQL', 'V2__tram_database_postgres.sql', 1234772164, 'eventuate', now(), 4, true),
 (3, '3', 'eventuate postgres wal', 'SQL', 'V3__eventuate_postgres_wal.sql', -168390987, 'eventuate', now(), 8, true),
 (4, '1005', 'MyMigration', 'JDBC', 'io.eventuate.tram.spring.flyway.V1005__MyMigration', NULL, 'eventuate', now(), 10, true)
-ON CONFLICT (installed_rank) DO NOTHING;
+ON CONFLICT (installed_rank) DO UPDATE SET
+    version = EXCLUDED.version,
+    description = EXCLUDED.description,
+    type = EXCLUDED.type,
+    script = EXCLUDED.script,
+    checksum = EXCLUDED.checksum,
+    installed_by = EXCLUDED.installed_by,
+    installed_on = EXCLUDED.installed_on,
+    execution_time = EXCLUDED.execution_time,
+    success = EXCLUDED.success;
