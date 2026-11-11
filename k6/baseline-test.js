@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check } from 'k6';
 
-const GATEWAY_URL = __ENV.GATEWAY_URL || 'http://localhost:8085';
+const GATEWAY_URL = __ENV.GATEWAY_URL || 'http://localhost:8082';
 const CUSTOMER_COUNT = Number(__ENV.CUSTOMER_COUNT) || 50;
 const CREDIT_LIMIT = Number(__ENV.CREDIT_LIMIT) || 100000000; // $100M large credit limit
 
