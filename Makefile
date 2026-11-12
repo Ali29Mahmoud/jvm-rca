@@ -3,6 +3,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 
 CLUSTER_NAME := jvm-rca
 NAMESPACE    := eventuate-tram-examples-customers-and-orders
+MONITORING_NAMESPACE := monitoring
 GW_PORT      := 8085
 
 # All images that must exist in the kind node
@@ -18,24 +19,30 @@ IMAGES := \
 	mongo:5.0.6
 
 .PHONY: all up down status test images cluster-create load-images \
-        deploy-infra init-postgres deploy-apps wait-healthy help
+        deploy-infra init-postgres deploy-monitoring deploy-apps wait-healthy help
 
 ## Default target
 all: up
 
-## Build any locally-built images that are missing (api-gateway)
+## Build application microservice images and ensure all required images exist locally
 images:
-	@docker image inspect \
-		eventuateexamples/eventuate-tram-examples-customers-and-orders-api-gateway-service:latest \
-		>/dev/null 2>&1 \
-	|| { \
+	@echo "Building application microservice images..."
+	@for svc in api-gateway-service customer-service order-service order-history-service; do \
+		echo "Building $$svc..."; \
 		docker build \
 			--build-arg baseImageVersion=0.3.0.RELEASE \
 			--build-arg serviceImageVersion=0.1.0-SNAPSHOT \
-			-t eventuateexamples/eventuate-tram-examples-customers-and-orders-api-gateway-service:latest \
-			-f api-gateway-service/api-gateway-service-main/Dockerfile \
-			api-gateway-service/api-gateway-service-main/; \
-	}
+			-t eventuateexamples/eventuate-tram-examples-customers-and-orders-$$svc:latest \
+			-f $$svc/$$svc-main/Dockerfile \
+			$$svc/$$svc-main/ || exit 1; \
+	done
+	@echo "Checking infrastructure images..."
+	@for img in $(IMAGES); do \
+		if ! docker image inspect "$$img" >/dev/null 2>&1; then \
+			echo "Pulling missing image: $$img..."; \
+			docker pull "$$img" || exit 1; \
+		fi; \
+	done
 	@echo "All images present in local daemon."
 
 ## Create the kind cluster (no-op if already exists)
@@ -79,35 +86,60 @@ init-postgres: deploy-infra
 			echo "✗ PostgreSQL did not accept connections in time" >&2; exit 1; \
 		fi; \
 	done
-	@echo "Seeding Postgres flyway schema history..."
+	@echo "Applying Postgres schema..."
 	@PG_POD=$$(kubectl get pod -l role=postgres -n $(NAMESPACE) \
 		-o jsonpath='{.items[0].metadata.name}'); \
 	kubectl exec -i -n $(NAMESPACE) $$PG_POD -- \
+		psql -U eventuate -d eventuate < k8s-deployment/postgres-schema.sql >/dev/null 2>&1 || true
+	@echo "Seeding Postgres flyway schema history..."
+	@kubectl exec -i -n $(NAMESPACE) $$PG_POD -- \
 		psql -U eventuate -d eventuate < k8s-deployment/init-postgres.sql
 	@echo "Postgres initialised."
 
-## Deploy application services and API Gateway
-deploy-apps: init-postgres
+## Deploy Prometheus and Grafana monitoring stack via Helm
+deploy-monitoring:
+	@echo "Deploying Prometheus and Grafana monitoring stack..."
+	@if ! helm status monitoring -n $(MONITORING_NAMESPACE) >/dev/null 2>&1; then \
+		helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true; \
+		helm repo update prometheus-community; \
+		helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+			--namespace $(MONITORING_NAMESPACE) --create-namespace \
+			--set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+			--set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false; \
+	else \
+		echo "Monitoring stack already deployed."; \
+	fi
+
+## Deploy application services, API Gateway, and ServiceMonitors
+deploy-apps: init-postgres deploy-monitoring
 	@echo "Deploying application services and API Gateway..."
 	@kubectl apply -f k8s-deployment/02-applications-and-gateway.yaml
+	@echo "Deploying ServiceMonitors..."
+	@kubectl apply -f k8s-deployment/03-service-monitors.yaml
 
-## Block until every pod in the namespace is Ready
+## Block until every pod in the application and monitoring namespaces is Ready
 wait-healthy: deploy-apps
-	@echo "Waiting for all pods to be Ready (up to 3 min)..."
+	@echo "Waiting for all application pods to be Ready (up to 3 min)..."
 	@kubectl wait --for=condition=ready pod --all \
 		-n $(NAMESPACE) --timeout=180s
+	@echo "Waiting for Prometheus and Grafana pods to be Ready (up to 5 min)..."
+	@kubectl wait --for=condition=ready pod --all \
+		-n $(MONITORING_NAMESPACE) --timeout=300s
 	@echo "All pods Ready."
 
 ## Spin up the full system from scratch
 up:
-	@START=$$(date +%s); \
+	@set -e; \
+	START=$$(date +%s); \
 	$(MAKE) wait-healthy; \
 	END=$$(date +%s); \
 	echo ""; \
 	echo "========================================="; \
 	echo "  System UP  —  elapsed: $$(( END - START )) s"; \
 	echo "========================================="; \
-	kubectl get pods -n $(NAMESPACE)
+	kubectl get pods -n $(NAMESPACE); \
+	echo ""; \
+	kubectl get pods -n $(MONITORING_NAMESPACE)
 
 ## Tear down the entire kind cluster
 down:
@@ -120,6 +152,10 @@ status:
 	@echo "=== Pods in $(NAMESPACE) ==="
 	@kubectl get pods -n $(NAMESPACE) -o wide 2>/dev/null \
 		|| echo "(cluster not running)"
+	@echo ""
+	@echo "=== Pods in $(MONITORING_NAMESPACE) ==="
+	@kubectl get pods -n $(MONITORING_NAMESPACE) -o wide 2>/dev/null \
+		|| echo "(monitoring not running)"
 	@echo ""
 	@echo "=== Kind node resource usage ==="
 	@docker stats --no-stream \
