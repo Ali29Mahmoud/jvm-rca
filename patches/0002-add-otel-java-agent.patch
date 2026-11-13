@@ -1,0 +1,68 @@
+diff --git a/api-gateway-service/api-gateway-service-main/Dockerfile b/api-gateway-service/api-gateway-service-main/Dockerfile
+index ddcf5ff..a2a61e8 100644
+--- a/api-gateway-service/api-gateway-service-main/Dockerfile
++++ b/api-gateway-service/api-gateway-service-main/Dockerfile
+@@ -1,4 +1,8 @@
+ ARG baseImageVersion
++ARG otelJavaAgentVersion=2.20.1
++FROM ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:$otelJavaAgentVersion AS otel
+ FROM eventuateio/eventuate-examples-docker-images-spring-example-base-image:$baseImageVersion
+ ARG serviceImageVersion
+ COPY build/libs/api-gateway-service-main-$serviceImageVersion.jar service.jar
++COPY --from=otel /javaagent.jar /otel/opentelemetry-javaagent.jar
++ENV JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar"
+diff --git a/customer-service/customer-service-main/Dockerfile b/customer-service/customer-service-main/Dockerfile
+index ead4cb7..d74ae98 100755
+--- a/customer-service/customer-service-main/Dockerfile
++++ b/customer-service/customer-service-main/Dockerfile
+@@ -1,5 +1,9 @@
+ ARG baseImageVersion
++ARG otelJavaAgentVersion=2.20.1
++FROM ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:$otelJavaAgentVersion AS otel
+ FROM eventuateio/eventuate-examples-docker-images-spring-example-base-image:$baseImageVersion
+ ARG jarDir=build/libs
+ ARG serviceImageVersion
+ COPY $jarDir/customer-service-main-$serviceImageVersion.jar service.jar
++COPY --from=otel /javaagent.jar /otel/opentelemetry-javaagent.jar
++ENV JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar"
+diff --git a/order-history-service/order-history-service-main/Dockerfile b/order-history-service/order-history-service-main/Dockerfile
+index 266a47b..752fdbe 100644
+--- a/order-history-service/order-history-service-main/Dockerfile
++++ b/order-history-service/order-history-service-main/Dockerfile
+@@ -1,5 +1,9 @@
+ ARG baseImageVersion
++ARG otelJavaAgentVersion=2.20.1
++FROM ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:$otelJavaAgentVersion AS otel
+ FROM eventuateio/eventuate-examples-docker-images-spring-example-base-image:$baseImageVersion
+ ARG jarDir=build/libs
+ ARG serviceImageVersion
+ COPY $jarDir/order-history-service-main-$serviceImageVersion.jar service.jar
++COPY --from=otel /javaagent.jar /otel/opentelemetry-javaagent.jar
++ENV JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar"
+diff --git a/order-history-text-search-service/Dockerfile b/order-history-text-search-service/Dockerfile
+index 38236a8..71bda39 100755
+--- a/order-history-text-search-service/Dockerfile
++++ b/order-history-text-search-service/Dockerfile
+@@ -1,4 +1,8 @@
+ ARG baseImageVersion
++ARG otelJavaAgentVersion=2.20.1
++FROM ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:$otelJavaAgentVersion AS otel
+ FROM eventuateio/eventuate-examples-docker-images-spring-example-base-image:$baseImageVersion
+ ARG serviceImageVersion
+ COPY build/libs/order-history-text-search-service-$serviceImageVersion.jar service.jar
++COPY --from=otel /javaagent.jar /otel/opentelemetry-javaagent.jar
++ENV JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar"
+diff --git a/order-service/order-service-main/Dockerfile b/order-service/order-service-main/Dockerfile
+index 609b731..b3c6c63 100755
+--- a/order-service/order-service-main/Dockerfile
++++ b/order-service/order-service-main/Dockerfile
+@@ -1,5 +1,9 @@
+ ARG baseImageVersion
++ARG otelJavaAgentVersion=2.20.1
++FROM ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:$otelJavaAgentVersion AS otel
+ FROM eventuateio/eventuate-examples-docker-images-spring-example-base-image:$baseImageVersion
+ ARG jarDir=build/libs
+ ARG serviceImageVersion
+ COPY $jarDir/order-service-main-$serviceImageVersion.jar service.jar
++COPY --from=otel /javaagent.jar /otel/opentelemetry-javaagent.jar
++ENV JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar"

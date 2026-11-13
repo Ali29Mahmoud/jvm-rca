@@ -15,3 +15,4 @@ deployment/terraform_azure/2.setup.sql
 tmp-migration
 bin
 .vscode
+.env

@@ -1,0 +1,60 @@
+diff --git a/api-gateway-service/api-gateway-service-main/build.gradle b/api-gateway-service/api-gateway-service-main/build.gradle
+index f70308b..ed3ea6d 100755
+--- a/api-gateway-service/api-gateway-service-main/build.gradle
++++ b/api-gateway-service/api-gateway-service-main/build.gradle
+@@ -20,6 +20,7 @@ dependencies {
+     implementation "org.springframework.cloud:spring-cloud-starter-circuitbreaker-reactor-resilience4j"
+ 
+     implementation "org.springframework.boot:spring-boot-starter-actuator"
++    runtimeOnly "io.micrometer:micrometer-registry-prometheus"
+ 
+     implementation "io.micrometer:micrometer-tracing-bridge-brave"
+     implementation "io.zipkin.reporter2:zipkin-reporter-brave"
+diff --git a/customer-service/customer-service-main/build.gradle b/customer-service/customer-service-main/build.gradle
+index 02fe13d..08a9c60 100644
+--- a/customer-service/customer-service-main/build.gradle
++++ b/customer-service/customer-service-main/build.gradle
+@@ -11,6 +11,7 @@ dependencies {
+     implementation "io.eventuate.tram.core:eventuate-tram-spring-jdbc-kafka"
+ 
+     implementation "org.springframework.boot:spring-boot-starter-actuator"
++    runtimeOnly "io.micrometer:micrometer-registry-prometheus"
+ 
+     componentTestImplementation "io.eventuate.platform.testcontainer.support:eventuate-platform-testcontainer-support-service:$eventuatePlatformTestContainerSupportVersion"
+     componentTestImplementation "io.eventuate.tram.core:eventuate-tram-spring-in-memory"
+diff --git a/order-history-service/order-history-service-main/build.gradle b/order-history-service/order-history-service-main/build.gradle
+index 71c89a0..f8ced42 100644
+--- a/order-history-service/order-history-service-main/build.gradle
++++ b/order-history-service/order-history-service-main/build.gradle
+@@ -8,6 +8,7 @@ dependencies {
+     implementation project(":order-history-service:order-history-service-domain")
+ 
+     implementation "org.springframework.boot:spring-boot-starter-actuator"
++    runtimeOnly "io.micrometer:micrometer-registry-prometheus"
+ 
+     componentTestImplementation "io.eventuate.platform.testcontainer.support:eventuate-platform-testcontainer-support-service:$eventuatePlatformTestContainerSupportVersion"
+     componentTestImplementation "io.eventuate.tram.core:eventuate-tram-spring-in-memory"
+diff --git a/order-history-text-search-service/build.gradle b/order-history-text-search-service/build.gradle
+index ad84cad..ab87736 100755
+--- a/order-history-text-search-service/build.gradle
++++ b/order-history-text-search-service/build.gradle
+@@ -5,6 +5,7 @@ dependencies {
+     implementation "io.eventuate.examples.common:eventuate-examples-common-money-jakarta9:$eventuateCommonExamplesVersion"
+     implementation project (":order-history-text-search-service-api-restapi")
+     implementation "org.springframework.boot:spring-boot-starter-actuator"
++    runtimeOnly "io.micrometer:micrometer-registry-prometheus"
+     implementation "org.springframework.boot:spring-boot-starter-data-elasticsearch"
+     implementation "io.eventuate.tram.core:eventuate-tram-spring-consumer-kafka"
+     implementation "io.eventuate.tram.core:eventuate-tram-spring-events-subscriber-starter"
+diff --git a/order-service/order-service-main/build.gradle b/order-service/order-service-main/build.gradle
+index c1dab50..8b4fe4f 100644
+--- a/order-service/order-service-main/build.gradle
++++ b/order-service/order-service-main/build.gradle
+@@ -12,6 +12,7 @@ dependencies {
+     implementation "io.eventuate.tram.core:eventuate-tram-spring-jdbc-kafka"
+ 
+     implementation "org.springframework.boot:spring-boot-starter-actuator"
++    runtimeOnly "io.micrometer:micrometer-registry-prometheus"
+ 
+     componentTestImplementation "io.eventuate.platform.testcontainer.support:eventuate-platform-testcontainer-support-service:$eventuatePlatformTestContainerSupportVersion"
+     componentTestImplementation "io.eventuate.tram.core:eventuate-tram-spring-in-memory"
