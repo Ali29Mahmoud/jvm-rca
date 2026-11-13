@@ -16,7 +16,10 @@ IMAGES := \
 	eventuateio/eventuate-kafka:0.20.0.RELEASE \
 	eventuateio/eventuate-postgres:0.22.0.RELEASE \
 	eventuateio/eventuate-zookeeper:0.22.0.RELEASE \
-	mongo:5.0.6
+	mongo:5.0.6 \
+	otel/opentelemetry-collector:0.115.1 \
+	grafana/tempo:2.7.1 \
+	ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
 
 .PHONY: all up down status test images cluster-create load-images \
         deploy-infra init-postgres deploy-monitoring deploy-apps wait-healthy help
@@ -92,7 +95,9 @@ init-postgres: deploy-infra
 	kubectl exec -i -n $(NAMESPACE) $$PG_POD -- \
 		psql -U eventuate -d eventuate < k8s-deployment/postgres-schema.sql >/dev/null 2>&1 || true
 	@echo "Seeding Postgres flyway schema history..."
-	@kubectl exec -i -n $(NAMESPACE) $$PG_POD -- \
+	@PG_POD=$$(kubectl get pod -l role=postgres -n $(NAMESPACE) \
+		-o jsonpath='{.items[0].metadata.name}'); \
+	kubectl exec -i -n $(NAMESPACE) $$PG_POD -- \
 		psql -U eventuate -d eventuate < k8s-deployment/init-postgres.sql
 	@echo "Postgres initialised."
 
@@ -112,19 +117,41 @@ deploy-monitoring:
 
 ## Deploy application services, API Gateway, and ServiceMonitors
 deploy-apps: init-postgres deploy-monitoring
+	@echo "Deploying OpenTelemetry Collector..."
+	@kubectl apply -f k8s-deployment/04-otel-collector.yaml
 	@echo "Deploying application services and API Gateway..."
 	@kubectl apply -f k8s-deployment/02-applications-and-gateway.yaml
 	@echo "Deploying ServiceMonitors..."
 	@kubectl apply -f k8s-deployment/03-service-monitors.yaml
 
 ## Block until every pod in the application and monitoring namespaces is Ready
+## Uses a retry loop because kubectl wait resolves its pod list once: a pod
+## replaced by a rolling update mid-wait otherwise makes it fail with NotFound.
 wait-healthy: deploy-apps
 	@echo "Waiting for all application pods to be Ready (up to 3 min)..."
-	@kubectl wait --for=condition=ready pod --all \
-		-n $(NAMESPACE) --timeout=180s
+	@for i in $$(seq 1 36); do \
+		if kubectl wait --for=condition=ready pod --all \
+			-n $(NAMESPACE) --timeout=5s >/dev/null 2>&1; then \
+			echo "Application pods Ready."; break; \
+		fi; \
+		if [ "$$i" = "36" ]; then \
+			echo "✗ Application pods did not become Ready in time" >&2; \
+			kubectl get pods -n $(NAMESPACE); exit 1; \
+		fi; \
+		sleep 5; \
+	done
 	@echo "Waiting for Prometheus and Grafana pods to be Ready (up to 5 min)..."
-	@kubectl wait --for=condition=ready pod --all \
-		-n $(MONITORING_NAMESPACE) --timeout=300s
+	@for i in $$(seq 1 60); do \
+		if kubectl wait --for=condition=ready pod --all \
+			-n $(MONITORING_NAMESPACE) --timeout=5s >/dev/null 2>&1; then \
+			echo "Monitoring pods Ready."; break; \
+		fi; \
+		if [ "$$i" = "60" ]; then \
+			echo "✗ Monitoring pods did not become Ready in time" >&2; \
+			kubectl get pods -n $(MONITORING_NAMESPACE); exit 1; \
+		fi; \
+		sleep 5; \
+	done
 	@echo "All pods Ready."
 
 ## Spin up the full system from scratch

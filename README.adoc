@@ -29,7 +29,11 @@ dashboard are new work added in this fork.
 Changes to upstream files are kept small and listed here. New files and
 folders (docs/, benchmark/, agent/, infra/) are original to this project.
 
-- None yet.
+- `*/Dockerfile`: the OpenTelemetry Java agent is copied into each service image
+  and attached via `JAVA_TOOL_OPTIONS`.
+- `k8s-deployment/`: OTel Collector and Tempo, a Grafana Tempo datasource, and
+  `OTEL_*` configuration for every application service (init-container agent for
+  the upstream CDC service).
 
 Each modified upstream file is marked with a comment at the top saying that it
 was changed, and the diffs are kept in `patches/`.

@@ -7,7 +7,8 @@ metadata:
     svc: cdc-service
 spec:
   ports:
-  - port: 8080
+  - name: http
+    port: 8080
     targetPort: 8080
   selector:
     svc: cdc-service
@@ -29,6 +30,14 @@ spec:
       labels:
         svc: cdc-service
     spec:
+      initContainers:
+      - name: otel-agent
+        image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
+        imagePullPolicy: IfNotPresent
+        command: ["cp", "/javaagent.jar", "/otel/opentelemetry-javaagent.jar"]
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
       containers:
       - name: cdc-service
         image: eventuateio/eventuate-cdc-service:0.20.0.RELEASE
@@ -36,7 +45,14 @@ spec:
         ports:
         - containerPort: 8080
           name: http
+        envFrom:
+        - configMapRef:
+            name: otel-config
         env:
+        - name: OTEL_SERVICE_NAME
+          value: cdc-service
+        - name: JAVA_TOOL_OPTIONS
+          value: "-javaagent:/otel/opentelemetry-javaagent.jar"
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             configMapKeyRef:
@@ -88,6 +104,12 @@ spec:
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 15
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
+      volumes:
+      - name: otel-agent
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -98,7 +120,8 @@ metadata:
     svc: customer-service
 spec:
   ports:
-  - port: 8082
+  - name: http
+    port: 8082
     targetPort: 8080
   selector:
     svc: customer-service
@@ -127,7 +150,12 @@ spec:
         ports:
         - containerPort: 8080
           name: http
+        envFrom:
+        - configMapRef:
+            name: otel-config
         env:
+        - name: OTEL_SERVICE_NAME
+          value: customer-service
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             configMapKeyRef:
@@ -183,7 +211,8 @@ metadata:
     svc: order-service
 spec:
   ports:
-  - port: 8081
+  - name: http
+    port: 8081
     targetPort: 8080
   selector:
     svc: order-service
@@ -212,7 +241,12 @@ spec:
         ports:
         - containerPort: 8080
           name: http
+        envFrom:
+        - configMapRef:
+            name: otel-config
         env:
+        - name: OTEL_SERVICE_NAME
+          value: order-service
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             configMapKeyRef:
@@ -268,7 +302,8 @@ metadata:
     svc: order-history-service
 spec:
   ports:
-  - port: 8083
+  - name: http
+    port: 8083
     targetPort: 8080
   selector:
     svc: order-history-service
@@ -297,7 +332,12 @@ spec:
         ports:
         - containerPort: 8080
           name: http
+        envFrom:
+        - configMapRef:
+            name: otel-config
         env:
+        - name: OTEL_SERVICE_NAME
+          value: order-history-service
         - name: SPRING_MONGODB_URI
           valueFrom:
             configMapKeyRef:
@@ -341,7 +381,8 @@ metadata:
     svc: api-gateway-service
 spec:
   ports:
-  - port: 8080
+  - name: http
+    port: 8080
     targetPort: 8080
   selector:
     svc: api-gateway-service
@@ -370,13 +411,20 @@ spec:
         ports:
         - containerPort: 8080
           name: http
+        envFrom:
+        - configMapRef:
+            name: otel-config
         env:
+        - name: OTEL_SERVICE_NAME
+          value: api-gateway-service
         - name: customer.destinations.customerServiceUrl
           value: "http://customer-service:8082"
         - name: order.destinations.orderServiceUrl
           value: "http://order-service:8081"
         - name: orderhistory.destinations.orderHistoryServiceUrl
           value: "http://order-history-service:8083"
+        - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+          value: "*"
         resources:
           requests:
             cpu: 300m

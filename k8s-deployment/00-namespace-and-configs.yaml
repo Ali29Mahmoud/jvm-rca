@@ -21,3 +21,16 @@ data:
   sql_password: eventuate
   sql_user: eventuate
   sql_driver: org.postgresql.Driver
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-config
+  namespace: eventuate-tram-examples-customers-and-orders
+data:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_LOGS_EXPORTER: otlp
+  OTEL_RESOURCE_ATTRIBUTES: service.namespace=eventuate-tram-examples-customers-and-orders,deployment.environment=kind

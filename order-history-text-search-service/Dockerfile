@@ -1,4 +1,8 @@
 ARG baseImageVersion
+ARG otelJavaAgentVersion=2.20.1
+FROM ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:$otelJavaAgentVersion AS otel
 FROM eventuateio/eventuate-examples-docker-images-spring-example-base-image:$baseImageVersion
 ARG serviceImageVersion
 COPY build/libs/order-history-text-search-service-$serviceImageVersion.jar service.jar
+COPY --from=otel /javaagent.jar /otel/opentelemetry-javaagent.jar
+ENV JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar"
