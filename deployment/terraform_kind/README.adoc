@@ -1,0 +1,136 @@
+= Terraform module: customers-and-orders on kind
+
+Terraform module that deploys the Eventuate Tram customers-and-orders example,
+its Kafka/Postgres/MongoDB infrastructure and the observability stack onto a
+local link:https://kind.sigs.k8s.io/[kind] cluster. It is the declarative
+equivalent of `make up`: the same images, ConfigMaps, Deployments and Services
+as `k8s-deployment/*.yaml`, with kube-prometheus-stack installed through Helm.
+
+== What gets deployed
+
+[cols="1,3",options="header"]
+|===
+| Layer | Resources
+
+| Namespace + config
+| `namespace`, `sql-config`, `mongodb-config`, `otel-config` ConfigMaps
+
+| Infrastructure
+| Zookeeper, Kafka, Postgres, MongoDB (Deployments + Services), plus a one-shot
+  `postgres-init` Job that seeds `eventuate.flyway_schema_history`
+
+| Application
+| `cdc-service`, `customer-service`, `order-service`, `order-history-service`,
+  `api-gateway-service` (Deployments + Services)
+
+| Metrics (Helm)
+| `kube-prometheus-stack` in the `monitoring` namespace (Prometheus, Grafana,
+  Alertmanager, node-exporter, kube-state-metrics), `ServiceMonitor` per service
+
+| Traces
+| OpenTelemetry collector (`otel-collector`) and Grafana Tempo, wired as
+  collector -> Tempo, plus the Grafana Tempo datasource
+|===
+
+== Prerequisites
+
+1. Terraform >= 1.5, with network access to the Terraform registry and the
+   Prometheus community Helm repository. Helm and kubectl are *not* required
+   for the module itself.
+2. The kind cluster with the images loaded into its node. From the repository
+   root:
++
+[source,bash]
+----
+make load      # creates the kind cluster, builds the four application images
+               # and loads every required image into the node
+----
+
+== Usage
+
+From the repository root, letting the Makefile create the cluster, load the
+images and apply this module, then wait for every pod to be Ready:
+
+[source,bash]
+----
+make up
+make down      # terraform destroy, then delete the kind cluster
+----
+
+Or drive Terraform directly:
+
+[source,bash]
+----
+cd deployment/terraform_kind
+terraform init
+terraform plan
+terraform apply
+----
+
+Point it at a different cluster with `-var kube_context=...` (default
+`kind-jvm-rca`), and see the outputs afterwards:
+
+[source,bash]
+----
+terraform output                      # gateway URL, port-forward commands
+kubectl get pods -n eventuate-tram-examples-customers-and-orders
+kubectl get pods -n monitoring
+----
+
+Tear down only what this module created:
+
+[source,bash]
+----
+terraform destroy
+----
+
+`terraform destroy` removes the namespace, so it deletes the Postgres and
+MongoDB data along with it.
+
+== Variables
+
+[cols="2,1,3",options="header"]
+|===
+| Variable | Default | Purpose
+
+| `kubeconfig_path` | `~/.kube/config` | Kubeconfig used by both providers.
+| `kube_context` | `kind-jvm-rca` | Context to deploy into.
+| `namespace` | `eventuate-tram-examples-customers-and-orders` | Application namespace.
+| `monitoring_namespace` | `monitoring` | Namespace for kube-prometheus-stack.
+| `deploy_infrastructure` | `true` | Deploy Zookeeper/Kafka/Postgres/MongoDB.
+| `deploy_observability` | `true` | Deploy the collector, Tempo and kube-prometheus-stack.
+| `init_postgres` | `true` | Run the schema/Flyway seeding job.
+| `replicas` | `1` | Replicas per application service.
+| `service_image_repository` | `eventuateexamples/eventuate-tram-examples-customers-and-orders` | Prefix of the built application images.
+| `service_image_tag` | `latest` | Tag of the application images.
+| `cdc_image`, `kafka_image`, `zookeeper_image`, `postgres_image`, `mongodb_image` | eventuate/upstream versions | Infrastructure images.
+| `otel_collector_image`, `tempo_image`, `java_agent_image` | pinned versions | Observability images.
+| `kube_prometheus_stack_chart_version` | `null` (latest) | Pin the Helm chart.
+| `grafana_admin_password` | `admin` | Grafana admin password; override it anywhere but a throwaway kind cluster.
+| `helm_timeout` | `900` | Seconds to wait for the Helm release.
+|===
+
+== Notes and caveats
+
+* **Existing resources.** The module creates the namespace and the Helm release
+  named `monitoring`; it cannot adopt objects created earlier with
+  `kubectl apply` / `helm install`. On a cluster already populated by `make up`
+  either run `make down` first or import the resources, otherwise the apply
+  fails with "already exists".
+* **ServiceMonitors are CRDs.** `kubernetes_manifest` resolves CRD schemas at
+  plan time, so on a completely fresh cluster apply in two steps:
+  `terraform apply -target=helm_release.kube_prometheus_stack` and then a full
+  `terraform apply`. On a cluster where kube-prometheus-stack has been
+  installed before, a single apply works.
+* **Metrics scraping.** kube-prometheus-stack is installed with
+  `serviceMonitorSelectorNilUsesHelmValues=false` so Prometheus scrapes every
+  `ServiceMonitor`, not only ones carrying the Helm release label.
+* **The application runs Flyway itself.** `init_postgres` only creates the
+  schema and seeds the migration history, mirroring `make init-postgres`; set it
+  to `false` if the database is managed elsewhere.
+* **Data is ephemeral.** Tempo uses an `emptyDir`, Postgres and MongoDB are
+  single-replica Deployments without PVCs, exactly like `k8s-deployment/`.
+* **Not covered.** Building and loading images into the kind node,
+  `kubectl port-forward` and the k6 load scripts stay with the Makefile
+  (`make load`, `make test`); the module assumes the images are already present
+  in the node.

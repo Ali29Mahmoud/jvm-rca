@@ -6,6 +6,14 @@ NAMESPACE    := eventuate-tram-examples-customers-and-orders
 MONITORING_NAMESPACE := monitoring
 GW_PORT      := 8085
 
+# Terraform module that deploys infrastructure, application and observability
+TERRAFORM_DIR := deployment/terraform_kind
+TF            ?= terraform
+TF_REQUIRED    = command -v $(TF) >/dev/null 2>&1 || { \
+	echo "✗ $(TF) not found in PATH; install it: https://developer.hashicorp.com/terraform/install" >&2; \
+	exit 1; \
+}
+
 # All images that must exist in the kind node
 IMAGES := \
 	eventuateexamples/eventuate-tram-examples-customers-and-orders-customer-service:latest \
@@ -21,8 +29,9 @@ IMAGES := \
 	grafana/tempo:2.7.1 \
 	ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
 
-.PHONY: all up down status test images cluster-create load-images \
-        deploy-infra init-postgres deploy-monitoring deploy-apps wait-healthy help
+.PHONY: all up down status test images cluster-create load load-images \
+        deploy-infra init-postgres deploy-monitoring deploy-apps wait-healthy wait-ready \
+        tf-init tf-apply help
 
 ## Default target
 all: up
@@ -63,6 +72,23 @@ load-images: images cluster-create
 	@echo "Loading images into kind node (this may take a few minutes)..."
 	@kind load docker-image $(IMAGES) --name $(CLUSTER_NAME)
 	@echo "Images loaded."
+
+## Load all required images into the kind node (creates the cluster if needed)
+load: load-images
+
+## Initialise the Terraform module (downloads the kubernetes and helm providers)
+tf-init:
+	@$(TF_REQUIRED); \
+	$(TF) -chdir=$(TERRAFORM_DIR) init -input=false
+
+## Reconcile the cluster with the Terraform module
+## First pass installs kube-prometheus-stack so its CRDs exist, second pass
+## creates the ServiceMonitors and the rest of the stack in one graph.
+tf-apply: load tf-init
+	@echo "Applying Terraform (infrastructure, application, observability)..."; \
+	$(TF) -chdir=$(TERRAFORM_DIR) apply -input=false -auto-approve \
+		-target=helm_release.kube_prometheus_stack && \
+	$(TF) -chdir=$(TERRAFORM_DIR) apply -input=false -auto-approve
 
 ## Apply namespace + ConfigMaps + infrastructure pods
 deploy-infra: load-images
@@ -127,7 +153,7 @@ deploy-apps: init-postgres deploy-monitoring
 ## Block until every pod in the application and monitoring namespaces is Ready
 ## Uses a retry loop because kubectl wait resolves its pod list once: a pod
 ## replaced by a rolling update mid-wait otherwise makes it fail with NotFound.
-wait-healthy: deploy-apps
+wait-ready:
 	@echo "Waiting for all application pods to be Ready (up to 3 min)..."
 	@for i in $$(seq 1 36); do \
 		if kubectl wait --for=condition=ready pod --all \
@@ -154,11 +180,14 @@ wait-healthy: deploy-apps
 	done
 	@echo "All pods Ready."
 
-## Spin up the full system from scratch
-up:
+## Deploy the stack with kubectl, then block until it is Ready
+wait-healthy: deploy-apps wait-ready
+
+## Spin up the full system from scratch: kind cluster, Terraform, application
+up: tf-apply
 	@set -e; \
 	START=$$(date +%s); \
-	$(MAKE) wait-healthy; \
+	$(MAKE) wait-ready; \
 	END=$$(date +%s); \
 	echo ""; \
 	echo "========================================="; \
@@ -168,8 +197,15 @@ up:
 	echo ""; \
 	kubectl get pods -n $(MONITORING_NAMESPACE)
 
-## Tear down the entire kind cluster
+## Tear down the Terraform-managed resources and the entire kind cluster
 down:
+	@if [ -f $(TERRAFORM_DIR)/terraform.tfstate ]; then \
+		$(TF_REQUIRED); \
+		echo "Destroying Terraform-managed resources..."; \
+		$(TF) -chdir=$(TERRAFORM_DIR) destroy -input=false -auto-approve; \
+	else \
+		echo "No Terraform state; skipping destroy."; \
+	fi
 	@echo "Deleting kind cluster '$(CLUSTER_NAME)'..."
 	@kind delete cluster --name $(CLUSTER_NAME)
 	@echo "Cluster deleted."
