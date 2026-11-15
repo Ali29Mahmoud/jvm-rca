@@ -1,0 +1,93 @@
+{
+    "status": "success",
+    "data": {
+        "resultType": "vector",
+        "result": [
+            {
+                "metric": {
+                    "__name__": "jvm_threads_live_threads",
+                    "application": "api-gateway-service",
+                    "container": "api-gateway-service",
+                    "endpoint": "http",
+                    "instance": "10.244.0.17:8080",
+                    "job": "api-gateway-service",
+                    "namespace": "eventuate-tram-examples-customers-and-orders",
+                    "pod": "api-gateway-service-6cf6d47778-58vrl",
+                    "service": "api-gateway-service"
+                },
+                "value": [
+                    1794751716.081,
+                    "36"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "jvm_threads_live_threads",
+                    "application": "cdc-service",
+                    "container": "cdc-service",
+                    "endpoint": "http",
+                    "instance": "10.244.0.40:8080",
+                    "job": "cdc-service",
+                    "namespace": "eventuate-tram-examples-customers-and-orders",
+                    "pod": "cdc-service-dcc58974b-z6c66",
+                    "service": "cdc-service"
+                },
+                "value": [
+                    1794751716.081,
+                    "49"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "jvm_threads_live_threads",
+                    "application": "order-history-service",
+                    "container": "order-history-service",
+                    "endpoint": "http",
+                    "instance": "10.244.0.43:8080",
+                    "job": "order-history-service",
+                    "namespace": "eventuate-tram-examples-customers-and-orders",
+                    "pod": "order-history-service-845ddb859f-xhkgl",
+                    "service": "order-history-service"
+                },
+                "value": [
+                    1794751716.081,
+                    "44"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "jvm_threads_live_threads",
+                    "application": "order-service",
+                    "container": "order-service",
+                    "endpoint": "http",
+                    "instance": "10.244.0.42:8080",
+                    "job": "order-service",
+                    "namespace": "eventuate-tram-examples-customers-and-orders",
+                    "pod": "order-service-78998b6858-r9pns",
+                    "service": "order-service"
+                },
+                "value": [
+                    1794751716.081,
+                    "43"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "jvm_threads_live_threads",
+                    "application": "customer-service",
+                    "container": "customer-service",
+                    "endpoint": "http",
+                    "instance": "10.244.0.41:8080",
+                    "job": "customer-service",
+                    "namespace": "eventuate-tram-examples-customers-and-orders",
+                    "pod": "customer-service-6d4c88b88b-cqblb",
+                    "service": "customer-service"
+                },
+                "value": [
+                    1794751716.081,
+                    "43"
+                ]
+            }
+        ]
+    }
+}

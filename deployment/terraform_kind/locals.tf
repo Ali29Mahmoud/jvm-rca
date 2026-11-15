@@ -32,6 +32,8 @@ locals {
       env = concat(local.sql_env, local.kafka_env, [
         { name = "OTEL_SERVICE_NAME", value = "cdc-service", config_map = null, key = null },
         { name = "JAVA_TOOL_OPTIONS", value = "-javaagent:/otel/opentelemetry-javaagent.jar", config_map = null, key = null },
+        { name = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", value = "*", config_map = null, key = null },
+        { name = "MANAGEMENT_METRICS_TAGS_APPLICATION", value = "cdc-service", config_map = null, key = null },
         { name = "EVENTUATELOCAL_CDC_READER_NAME", value = "PostgresWalReader", config_map = null, key = null },
         { name = "SPRING_PROFILES_ACTIVE", value = "PostgresWal", config_map = null, key = null },
         { name = "EVENTUATE_OUTBOX_ID", value = "1", config_map = null, key = null },
@@ -51,6 +53,9 @@ locals {
       otel_agent      = false
       env = concat(local.sql_env, local.kafka_env, [
         { name = "OTEL_SERVICE_NAME", value = "customer-service", config_map = null, key = null },
+        { name = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", value = "*", config_map = null, key = null },
+        { name = "MANAGEMENT_METRICS_TAGS_APPLICATION", value = "customer-service", config_map = null, key = null },
+        { name = "SPRING_FLYWAY_DEFAULT_SCHEMA", value = "eventuate", config_map = null, key = null },
         { name = "CDC_SERVICE_URL", value = "http://cdc-service:8080", config_map = null, key = null },
       ])
     }
@@ -67,6 +72,9 @@ locals {
       otel_agent      = false
       env = concat(local.sql_env, local.kafka_env, [
         { name = "OTEL_SERVICE_NAME", value = "order-service", config_map = null, key = null },
+        { name = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", value = "*", config_map = null, key = null },
+        { name = "MANAGEMENT_METRICS_TAGS_APPLICATION", value = "order-service", config_map = null, key = null },
+        { name = "SPRING_FLYWAY_DEFAULT_SCHEMA", value = "eventuate", config_map = null, key = null },
         { name = "CDC_SERVICE_URL", value = "http://cdc-service:8080", config_map = null, key = null },
       ])
     }
@@ -83,6 +91,8 @@ locals {
       otel_agent      = false
       env = concat(local.mongo_env, local.kafka_env, [
         { name = "OTEL_SERVICE_NAME", value = "order-history-service", config_map = null, key = null },
+        { name = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", value = "*", config_map = null, key = null },
+        { name = "MANAGEMENT_METRICS_TAGS_APPLICATION", value = "order-history-service", config_map = null, key = null },
       ])
     }
 
@@ -98,6 +108,7 @@ locals {
       otel_agent      = false
       env = [
         { name = "OTEL_SERVICE_NAME", value = "api-gateway-service", config_map = null, key = null },
+        { name = "MANAGEMENT_METRICS_TAGS_APPLICATION", value = "api-gateway-service", config_map = null, key = null },
         { name = "customer.destinations.customerServiceUrl", value = "http://customer-service:8082", config_map = null, key = null },
         { name = "order.destinations.orderServiceUrl", value = "http://order-service:8081", config_map = null, key = null },
         { name = "orderhistory.destinations.orderHistoryServiceUrl", value = "http://order-history-service:8083", config_map = null, key = null },

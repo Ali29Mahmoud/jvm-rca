@@ -53,6 +53,10 @@ spec:
           value: cdc-service
         - name: JAVA_TOOL_OPTIONS
           value: "-javaagent:/otel/opentelemetry-javaagent.jar"
+        - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+          value: "*"
+        - name: MANAGEMENT_METRICS_TAGS_APPLICATION
+          value: cdc-service
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             configMapKeyRef:
@@ -143,6 +147,14 @@ spec:
       labels:
         svc: customer-service
     spec:
+      initContainers:
+      - name: otel-agent
+        image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
+        imagePullPolicy: IfNotPresent
+        command: ["cp", "/javaagent.jar", "/otel/opentelemetry-javaagent.jar"]
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
       containers:
       - name: customer-service
         image: eventuateexamples/eventuate-tram-examples-customers-and-orders-customer-service:latest
@@ -156,6 +168,14 @@ spec:
         env:
         - name: OTEL_SERVICE_NAME
           value: customer-service
+        - name: JAVA_TOOL_OPTIONS
+          value: "-javaagent:/otel/opentelemetry-javaagent.jar"
+        - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+          value: "*"
+        - name: MANAGEMENT_METRICS_TAGS_APPLICATION
+          value: customer-service
+        - name: SPRING_FLYWAY_DEFAULT_SCHEMA
+          value: eventuate
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             configMapKeyRef:
@@ -201,6 +221,12 @@ spec:
             port: 8080
           initialDelaySeconds: 45
           periodSeconds: 15
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
+      volumes:
+      - name: otel-agent
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -234,6 +260,14 @@ spec:
       labels:
         svc: order-service
     spec:
+      initContainers:
+      - name: otel-agent
+        image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
+        imagePullPolicy: IfNotPresent
+        command: ["cp", "/javaagent.jar", "/otel/opentelemetry-javaagent.jar"]
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
       containers:
       - name: order-service
         image: eventuateexamples/eventuate-tram-examples-customers-and-orders-order-service:latest
@@ -247,6 +281,14 @@ spec:
         env:
         - name: OTEL_SERVICE_NAME
           value: order-service
+        - name: JAVA_TOOL_OPTIONS
+          value: "-javaagent:/otel/opentelemetry-javaagent.jar"
+        - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+          value: "*"
+        - name: MANAGEMENT_METRICS_TAGS_APPLICATION
+          value: order-service
+        - name: SPRING_FLYWAY_DEFAULT_SCHEMA
+          value: eventuate
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             configMapKeyRef:
@@ -292,6 +334,12 @@ spec:
             port: 8080
           initialDelaySeconds: 45
           periodSeconds: 15
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
+      volumes:
+      - name: otel-agent
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -325,6 +373,14 @@ spec:
       labels:
         svc: order-history-service
     spec:
+      initContainers:
+      - name: otel-agent
+        image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
+        imagePullPolicy: IfNotPresent
+        command: ["cp", "/javaagent.jar", "/otel/opentelemetry-javaagent.jar"]
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
       containers:
       - name: order-history-service
         image: eventuateexamples/eventuate-tram-examples-customers-and-orders-order-history-service:latest
@@ -337,6 +393,12 @@ spec:
             name: otel-config
         env:
         - name: OTEL_SERVICE_NAME
+          value: order-history-service
+        - name: JAVA_TOOL_OPTIONS
+          value: "-javaagent:/otel/opentelemetry-javaagent.jar"
+        - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+          value: "*"
+        - name: MANAGEMENT_METRICS_TAGS_APPLICATION
           value: order-history-service
         - name: SPRING_MONGODB_URI
           valueFrom:
@@ -371,6 +433,12 @@ spec:
             port: 8080
           initialDelaySeconds: 45
           periodSeconds: 15
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
+      volumes:
+      - name: otel-agent
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -404,6 +472,14 @@ spec:
       labels:
         svc: api-gateway-service
     spec:
+      initContainers:
+      - name: otel-agent
+        image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
+        imagePullPolicy: IfNotPresent
+        command: ["cp", "/javaagent.jar", "/otel/opentelemetry-javaagent.jar"]
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
       containers:
       - name: api-gateway-service
         image: eventuateexamples/eventuate-tram-examples-customers-and-orders-api-gateway-service:latest
@@ -417,6 +493,8 @@ spec:
         env:
         - name: OTEL_SERVICE_NAME
           value: api-gateway-service
+        - name: JAVA_TOOL_OPTIONS
+          value: "-javaagent:/otel/opentelemetry-javaagent.jar"
         - name: customer.destinations.customerServiceUrl
           value: "http://customer-service:8082"
         - name: order.destinations.orderServiceUrl
@@ -425,6 +503,8 @@ spec:
           value: "http://order-history-service:8083"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
           value: "*"
+        - name: MANAGEMENT_METRICS_TAGS_APPLICATION
+          value: api-gateway-service
         resources:
           requests:
             cpu: 300m
@@ -444,3 +524,9 @@ spec:
             port: 8080
           initialDelaySeconds: 45
           periodSeconds: 15
+        volumeMounts:
+        - name: otel-agent
+          mountPath: /otel
+      volumes:
+      - name: otel-agent
+        emptyDir: {}

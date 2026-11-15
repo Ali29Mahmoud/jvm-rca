@@ -1,0 +1,12 @@
+NAME                                     READY   STATUS    RESTARTS      AGE    IP            NODE                    NOMINATED NODE   READINESS GATES
+api-gateway-service-6cf6d47778-58vrl     1/1     Running   0             168m   10.244.0.17   jvm-rca-control-plane   <none>           <none>
+cdc-service-dcc58974b-z6c66              1/1     Running   0             75s    10.244.0.40   jvm-rca-control-plane   <none>           <none>
+customer-service-6d4c88b88b-cqblb        1/1     Running   0             75s    10.244.0.41   jvm-rca-control-plane   <none>           <none>
+kafka-cc8bd799-7vqkx                     1/1     Running   2 (69s ago)   76s    10.244.0.39   jvm-rca-control-plane   <none>           <none>
+mongodb-65b4955f58-vx4rd                 1/1     Running   0             168m   10.244.0.13   jvm-rca-control-plane   <none>           <none>
+order-history-service-845ddb859f-xhkgl   1/1     Running   0             75s    10.244.0.43   jvm-rca-control-plane   <none>           <none>
+order-service-78998b6858-r9pns           1/1     Running   0             75s    10.244.0.42   jvm-rca-control-plane   <none>           <none>
+otel-collector-7db966b86b-zslnt          1/1     Running   0             168m   10.244.0.22   jvm-rca-control-plane   <none>           <none>
+postgres-777f5b6fbd-qx9c2                1/1     Running   0             32m    10.244.0.28   jvm-rca-control-plane   <none>           <none>
+tempo-6cb4d84647-bp8fn                   1/1     Running   0             168m   10.244.0.16   jvm-rca-control-plane   <none>           <none>
+zookeeper-54989dc76d-6bcfh               1/1     Running   0             168m   10.244.0.15   jvm-rca-control-plane   <none>           <none>

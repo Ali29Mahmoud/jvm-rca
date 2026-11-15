@@ -27,11 +27,13 @@ IMAGES := \
 	mongo:5.0.6 \
 	otel/opentelemetry-collector:0.115.1 \
 	grafana/tempo:2.7.1 \
-	ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
+	ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1 \
+	grafana/loki:2.9.3 \
+	grafana/promtail:2.9.3
 
 .PHONY: all up down status test images cluster-create load load-images \
         deploy-infra init-postgres deploy-monitoring deploy-apps wait-healthy wait-ready \
-        tf-init tf-apply help
+        tf-init tf-apply reset snapshot help
 
 ## Default target
 all: up
@@ -140,6 +142,18 @@ deploy-monitoring:
 	else \
 		echo "Monitoring stack already deployed."; \
 	fi
+	@echo "Deploying Loki and Promtail log stack..."
+	@if ! helm status loki -n $(MONITORING_NAMESPACE) >/dev/null 2>&1; then \
+		helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true; \
+		helm repo update grafana; \
+		helm upgrade --install loki grafana/loki-stack \
+			--namespace $(MONITORING_NAMESPACE) --create-namespace \
+			--set loki.image.tag=2.9.3 \
+			--set promtail.image.tag=2.9.3 \
+			--set loki.persistence.enabled=false; \
+	else \
+		echo "Loki stack already deployed."; \
+	fi
 
 ## Deploy application services, API Gateway, and ServiceMonitors
 deploy-apps: init-postgres deploy-monitoring
@@ -149,6 +163,8 @@ deploy-apps: init-postgres deploy-monitoring
 	@kubectl apply -f k8s-deployment/02-applications-and-gateway.yaml
 	@echo "Deploying ServiceMonitors..."
 	@kubectl apply -f k8s-deployment/03-service-monitors.yaml
+	@echo "Deploying Loki cross-namespace services and default logger..."
+	@kubectl apply -f k8s-deployment/05-loki-promtail.yaml
 
 ## Block until every pod in the application and monitoring namespaces is Ready
 ## Uses a retry loop because kubectl wait resolves its pod list once: a pod
@@ -228,6 +244,14 @@ status:
 ## Run the end-to-end curl smoke test through the gateway port-forward
 test:
 	@bash run_flow.sh
+
+## Reset application databases, Kafka topics, and pg_stat_statements
+reset:
+	@bash scripts/reset-environment.sh
+
+## Capture healthy-baseline state snapshot
+snapshot:
+	@bash scripts/capture-snapshot.sh snapshots/healthy-baseline
 
 ## Print this help
 help:

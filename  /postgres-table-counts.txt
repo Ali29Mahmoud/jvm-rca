@@ -1,0 +1,15 @@
+ schemaname |          table_name          | row_count 
+------------+------------------------------+-----------
+ eventuate  | cdc_monitoring               |         1
+ eventuate  | customer                     |         1
+ eventuate  | customer_credit_reservations |         1
+ eventuate  | entities                     |         0
+ eventuate  | events                       |         0
+ eventuate  | flyway_schema_history        |         4
+ eventuate  | message                      |         4
+ eventuate  | offset_store                 |         0
+ eventuate  | orders                       |         1
+ eventuate  | received_messages            |         4
+ eventuate  | snapshots                    |         0
+(11 rows)
+

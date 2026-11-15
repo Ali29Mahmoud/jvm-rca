@@ -1,0 +1,730 @@
+Name:             api-gateway-service-6cf6d47778-58vrl
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 13:20:21 +0200
+Labels:           pod-template-hash=6cf6d47778
+                  svc=api-gateway-service
+Annotations:      <none>
+Status:           Running
+IP:               10.244.0.17
+IPs:
+  IP:           10.244.0.17
+Controlled By:  ReplicaSet/api-gateway-service-6cf6d47778
+Containers:
+  api-gateway-service:
+    Container ID:   containerd://5b0e46dd0d7356c488c5473160da59c8d5f24e36d3880d4b32f97e25e00452de
+    Image:          eventuateexamples/eventuate-tram-examples-customers-and-orders-api-gateway-service:latest
+    Image ID:       sha256:dfe637b9e98525adebce1fdf4d7579f8d69e3fb44911419e97c4b4e3c382b76f
+    Port:           8080/TCP (http)
+    Host Port:      0/TCP (http)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 13:20:21 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1500m
+      memory:  1Gi
+    Requests:
+      cpu:      300m
+      memory:   512Mi
+    Liveness:   http-get http://:8080/actuator/health delay=45s timeout=1s period=15s successThreshold=1 failureThreshold=3
+    Readiness:  http-get http://:8080/actuator/health delay=30s timeout=1s period=10s successThreshold=1 failureThreshold=3
+    Environment Variables from:
+      otel-config  ConfigMap  Optional: false
+    Environment:
+      OTEL_SERVICE_NAME:                                 api-gateway-service
+      MANAGEMENT_METRICS_TAGS_APPLICATION:               api-gateway-service
+      customer.destinations.customerServiceUrl:          http://customer-service:8082
+      order.destinations.orderServiceUrl:                http://order-service:8081
+      orderhistory.destinations.orderHistoryServiceUrl:  http://order-history-service:8083
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:         *
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-xbkft (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-xbkft:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             cdc-service-dcc58974b-z6c66
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 16:07:12 +0200
+Labels:           pod-template-hash=dcc58974b
+                  svc=cdc-service
+Annotations:      kubectl.kubernetes.io/restartedAt: 2026-11-15T15:36:00+02:00
+Status:           Running
+IP:               10.244.0.40
+IPs:
+  IP:           10.244.0.40
+Controlled By:  ReplicaSet/cdc-service-dcc58974b
+Init Containers:
+  otel-agent:
+    Container ID:  containerd://e40acf5bfdf411b3b41aee39a07293998508d8d2d3652c9562c69847822e315a
+    Image:         ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.20.1
+    Image ID:      sha256:6e10df3b3abcc6809d4975f5134e3111cf92549575d2c182eb59a960366d94b8
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      cp
+      /javaagent.jar
+      /otel/opentelemetry-javaagent.jar
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Sun, 15 Nov 2026 16:07:13 +0200
+      Finished:     Sun, 15 Nov 2026 16:07:13 +0200
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /otel from otel-agent (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-d9cjp (ro)
+Containers:
+  cdc-service:
+    Container ID:   containerd://bba12ea5a82c0852975fd9ae624cefb7adee010fd3a1528f13ca0ce82d0b147a
+    Image:          eventuateio/eventuate-cdc-service:0.20.0.RELEASE
+    Image ID:       sha256:a1e580fd4cc7b64956b7f6742b35887bed4180016f355d4390c36e370647fddf
+    Port:           8080/TCP (http)
+    Host Port:      0/TCP (http)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 16:07:13 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1
+      memory:  1Gi
+    Requests:
+      cpu:      300m
+      memory:   512Mi
+    Liveness:   http-get http://:8080/actuator/health delay=30s timeout=1s period=15s successThreshold=1 failureThreshold=3
+    Readiness:  http-get http://:8080/actuator/health delay=20s timeout=1s period=10s successThreshold=1 failureThreshold=3
+    Environment Variables from:
+      otel-config  ConfigMap  Optional: false
+    Environment:
+      SPRING_DATASOURCE_URL:                       <set to the key 'connection_string' of config map 'sql-config'>  Optional: false
+      SPRING_DATASOURCE_USERNAME:                  <set to the key 'sql_user' of config map 'sql-config'>           Optional: false
+      SPRING_DATASOURCE_PASSWORD:                  <set to the key 'sql_password' of config map 'sql-config'>       Optional: false
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME:         <set to the key 'sql_driver' of config map 'sql-config'>         Optional: false
+      EVENTUATELOCAL_KAFKA_BOOTSTRAP_SERVERS:      kafka:29092
+      EVENTUATELOCAL_ZOOKEEPER_CONNECTION_STRING:  zookeeper:2181
+      OTEL_SERVICE_NAME:                           cdc-service
+      JAVA_TOOL_OPTIONS:                           -javaagent:/otel/opentelemetry-javaagent.jar
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:   *
+      MANAGEMENT_METRICS_TAGS_APPLICATION:         cdc-service
+      EVENTUATELOCAL_CDC_READER_NAME:              PostgresWalReader
+      SPRING_PROFILES_ACTIVE:                      PostgresWal
+      EVENTUATE_OUTBOX_ID:                         1
+      JAVA_OPTS:                                   -Xmx256m
+    Mounts:
+      /otel from otel-agent (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-d9cjp (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  otel-agent:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  kube-api-access-d9cjp:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             customer-service-6d4c88b88b-cqblb
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 16:07:12 +0200
+Labels:           pod-template-hash=6d4c88b88b
+                  svc=customer-service
+Annotations:      kubectl.kubernetes.io/restartedAt: 2026-11-15T15:36:56+02:00
+Status:           Running
+IP:               10.244.0.41
+IPs:
+  IP:           10.244.0.41
+Controlled By:  ReplicaSet/customer-service-6d4c88b88b
+Containers:
+  customer-service:
+    Container ID:   containerd://d9a50d2d13ecb88eb686f2682d6c16e1e10cea22cf0f587df900044dc2d157b6
+    Image:          eventuateexamples/eventuate-tram-examples-customers-and-orders-customer-service:latest
+    Image ID:       sha256:e0c91374ec2b15350f0ce054a092a76389ddb5d13aa0cddcdf8be43a456b28f2
+    Port:           8080/TCP (http)
+    Host Port:      0/TCP (http)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 16:07:13 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1500m
+      memory:  1Gi
+    Requests:
+      cpu:      300m
+      memory:   512Mi
+    Liveness:   http-get http://:8080/actuator/health delay=45s timeout=1s period=15s successThreshold=1 failureThreshold=3
+    Readiness:  http-get http://:8080/actuator/health delay=30s timeout=1s period=10s successThreshold=1 failureThreshold=3
+    Environment Variables from:
+      otel-config  ConfigMap  Optional: false
+    Environment:
+      SPRING_DATASOURCE_URL:                       <set to the key 'connection_string' of config map 'sql-config'>  Optional: false
+      SPRING_DATASOURCE_USERNAME:                  <set to the key 'sql_user' of config map 'sql-config'>           Optional: false
+      SPRING_DATASOURCE_PASSWORD:                  <set to the key 'sql_password' of config map 'sql-config'>       Optional: false
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME:         <set to the key 'sql_driver' of config map 'sql-config'>         Optional: false
+      EVENTUATELOCAL_KAFKA_BOOTSTRAP_SERVERS:      kafka:29092
+      EVENTUATELOCAL_ZOOKEEPER_CONNECTION_STRING:  zookeeper:2181
+      OTEL_SERVICE_NAME:                           customer-service
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:   *
+      MANAGEMENT_METRICS_TAGS_APPLICATION:         customer-service
+      SPRING_FLYWAY_DEFAULT_SCHEMA:                eventuate
+      CDC_SERVICE_URL:                             http://cdc-service:8080
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-jdvwp (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-jdvwp:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             kafka-cc8bd799-7vqkx
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 16:07:11 +0200
+Labels:           pod-template-hash=cc8bd799
+                  role=kafka
+Annotations:      kubectl.kubernetes.io/restartedAt: 2026-11-15T16:07:11+02:00
+Status:           Running
+IP:               10.244.0.39
+IPs:
+  IP:           10.244.0.39
+Controlled By:  ReplicaSet/kafka-cc8bd799
+Containers:
+  kafka:
+    Container ID:   containerd://47a232b6535b793f61d8c8f6511b69ec170c30e5e7356e68f8b72f93281b7b4c
+    Image:          eventuateio/eventuate-kafka:0.20.0.RELEASE
+    Image ID:       sha256:098ac8c09b26db91fff4d88521492151a015aa44dfbd1dab4378a42b21ae4ef9
+    Ports:          29092/TCP (kafka), 9092/TCP (external)
+    Host Ports:     0/TCP (kafka), 0/TCP (external)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 16:07:31 +0200
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Sun, 15 Nov 2026 16:07:14 +0200
+      Finished:     Sun, 15 Nov 2026 16:07:18 +0200
+    Ready:          True
+    Restart Count:  2
+    Limits:
+      cpu:     1500m
+      memory:  1Gi
+    Requests:
+      cpu:     300m
+      memory:  512Mi
+    Environment:
+      KAFKA_LISTENERS:                         LC://:29092,LX://:9092
+      KAFKA_ADVERTISED_LISTENERS:              LC://kafka:29092,LX://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:    LC:PLAINTEXT,LX:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME:        LC
+      KAFKA_ZOOKEEPER_CONNECT:                 zookeeper:2181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR:  1
+      KAFKA_HEAP_OPTS:                         -Xmx384m
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-5pvcg (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-5pvcg:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             mongodb-65b4955f58-vx4rd
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 13:20:20 +0200
+Labels:           pod-template-hash=65b4955f58
+                  role=mongodb
+Annotations:      <none>
+Status:           Running
+IP:               10.244.0.13
+IPs:
+  IP:           10.244.0.13
+Controlled By:  ReplicaSet/mongodb-65b4955f58
+Containers:
+  mongodb:
+    Container ID:   containerd://4af4ce9e281bfb1f2e66bab7712fc3b12916afaa57d3538dd102fe33e0a6e803
+    Image:          mongo:5.0.6
+    Image ID:       sha256:532c84506200a31efb611a16c81180d360ffc6301cc7e0220adb53e91eb6bb0b
+    Port:           27017/TCP (mongodb)
+    Host Port:      0/TCP (mongodb)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 13:20:20 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1
+      memory:  512Mi
+    Requests:
+      cpu:        250m
+      memory:     256Mi
+    Environment:  <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-8mbst (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-8mbst:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             order-history-service-845ddb859f-xhkgl
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 16:07:12 +0200
+Labels:           pod-template-hash=845ddb859f
+                  svc=order-history-service
+Annotations:      <none>
+Status:           Running
+IP:               10.244.0.43
+IPs:
+  IP:           10.244.0.43
+Controlled By:  ReplicaSet/order-history-service-845ddb859f
+Containers:
+  order-history-service:
+    Container ID:   containerd://3eb59c77e8859227d0eb806adfb6752295354a19bca811501883bf103fd71a90
+    Image:          eventuateexamples/eventuate-tram-examples-customers-and-orders-order-history-service:latest
+    Image ID:       sha256:513e3af67d03f9df26e926ab3ccae6a8bd3d7d9fed9897f81f4eaaa6a208dedd
+    Port:           8080/TCP (http)
+    Host Port:      0/TCP (http)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 16:07:13 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1500m
+      memory:  1Gi
+    Requests:
+      cpu:      300m
+      memory:   512Mi
+    Liveness:   http-get http://:8080/actuator/health delay=45s timeout=1s period=15s successThreshold=1 failureThreshold=3
+    Readiness:  http-get http://:8080/actuator/health delay=30s timeout=1s period=10s successThreshold=1 failureThreshold=3
+    Environment Variables from:
+      otel-config  ConfigMap  Optional: false
+    Environment:
+      SPRING_MONGODB_URI:                          <set to the key 'connection_string' of config map 'mongodb-config'>  Optional: false
+      SPRING_DATA_MONGODB_URI:                     <set to the key 'connection_string' of config map 'mongodb-config'>  Optional: false
+      EVENTUATELOCAL_KAFKA_BOOTSTRAP_SERVERS:      kafka:29092
+      EVENTUATELOCAL_ZOOKEEPER_CONNECTION_STRING:  zookeeper:2181
+      OTEL_SERVICE_NAME:                           order-history-service
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:   *
+      MANAGEMENT_METRICS_TAGS_APPLICATION:         order-history-service
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-hbrfm (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-hbrfm:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             order-service-78998b6858-r9pns
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 16:07:12 +0200
+Labels:           pod-template-hash=78998b6858
+                  svc=order-service
+Annotations:      kubectl.kubernetes.io/restartedAt: 2026-11-15T15:36:56+02:00
+Status:           Running
+IP:               10.244.0.42
+IPs:
+  IP:           10.244.0.42
+Controlled By:  ReplicaSet/order-service-78998b6858
+Containers:
+  order-service:
+    Container ID:   containerd://ddaf1f33d57fa789da1889fe8729614388f2352d91f38fd8257ef8917f5b7f81
+    Image:          eventuateexamples/eventuate-tram-examples-customers-and-orders-order-service:latest
+    Image ID:       sha256:de0c6fedd2a55e2cace07c832c38827d5c762be7932453c96a65f2eb3a646018
+    Port:           8080/TCP (http)
+    Host Port:      0/TCP (http)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 16:07:13 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1500m
+      memory:  1Gi
+    Requests:
+      cpu:      300m
+      memory:   512Mi
+    Liveness:   http-get http://:8080/actuator/health delay=45s timeout=1s period=15s successThreshold=1 failureThreshold=3
+    Readiness:  http-get http://:8080/actuator/health delay=30s timeout=1s period=10s successThreshold=1 failureThreshold=3
+    Environment Variables from:
+      otel-config  ConfigMap  Optional: false
+    Environment:
+      SPRING_DATASOURCE_URL:                       <set to the key 'connection_string' of config map 'sql-config'>  Optional: false
+      SPRING_DATASOURCE_USERNAME:                  <set to the key 'sql_user' of config map 'sql-config'>           Optional: false
+      SPRING_DATASOURCE_PASSWORD:                  <set to the key 'sql_password' of config map 'sql-config'>       Optional: false
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME:         <set to the key 'sql_driver' of config map 'sql-config'>         Optional: false
+      EVENTUATELOCAL_KAFKA_BOOTSTRAP_SERVERS:      kafka:29092
+      EVENTUATELOCAL_ZOOKEEPER_CONNECTION_STRING:  zookeeper:2181
+      OTEL_SERVICE_NAME:                           order-service
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:   *
+      MANAGEMENT_METRICS_TAGS_APPLICATION:         order-service
+      SPRING_FLYWAY_DEFAULT_SCHEMA:                eventuate
+      CDC_SERVICE_URL:                             http://cdc-service:8080
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-gbmp5 (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-gbmp5:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             otel-collector-7db966b86b-zslnt
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 13:20:23 +0200
+Labels:           pod-template-hash=7db966b86b
+                  svc=otel-collector
+Annotations:      <none>
+Status:           Running
+IP:               10.244.0.22
+IPs:
+  IP:           10.244.0.22
+Controlled By:  ReplicaSet/otel-collector-7db966b86b
+Containers:
+  otel-collector:
+    Container ID:  containerd://619654ba5079b1ed1d12070f5d58e55b023d78b6cc05afc621b6a1d5fd6d4c26
+    Image:         otel/opentelemetry-collector:0.115.1
+    Image ID:      sha256:ead6220566a0c7e383889c151ec4277221f87624a68d8ac702f2cd6b63f8870f
+    Ports:         4317/TCP (otlp-grpc), 4318/TCP (otlp-http)
+    Host Ports:    0/TCP (otlp-grpc), 0/TCP (otlp-http)
+    Args:
+      --config=/etc/otelcol/config.yaml
+    State:          Running
+      Started:      Sun, 15 Nov 2026 13:20:24 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     500m
+      memory:  512Mi
+    Requests:
+      cpu:        100m
+      memory:     128Mi
+    Environment:  <none>
+    Mounts:
+      /etc/otelcol from config (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-74xbc (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  config:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      otel-collector-config
+    Optional:  false
+  kube-api-access-74xbc:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             postgres-777f5b6fbd-qx9c2
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 15:35:51 +0200
+Labels:           pod-template-hash=777f5b6fbd
+                  role=postgres
+Annotations:      kubectl.kubernetes.io/restartedAt: 2026-11-15T15:35:24+02:00
+Status:           Running
+IP:               10.244.0.28
+IPs:
+  IP:           10.244.0.28
+Controlled By:  ReplicaSet/postgres-777f5b6fbd
+Containers:
+  postgres:
+    Container ID:  containerd://bea720b181a2145f34a131cd7b914973519e1f11e3bf6176169b276ff21116da
+    Image:         eventuateio/eventuate-postgres:0.22.0.RELEASE
+    Image ID:      sha256:db85f2cfeae13388c5eb1402659f59e492b8d3004423f362f24f34e0a11eb915
+    Port:          5432/TCP (postgres)
+    Host Port:     0/TCP (postgres)
+    Args:
+      -c
+      shared_preload_libraries=wal2json,pg_stat_statements
+      -c
+      pg_stat_statements.track=all
+    State:          Running
+      Started:      Sun, 15 Nov 2026 15:35:51 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1
+      memory:  512Mi
+    Requests:
+      cpu:     250m
+      memory:  256Mi
+    Environment:
+      POSTGRES_USER:              eventuate
+      POSTGRES_PASSWORD:          eventuate
+      POSTGRES_HOST_AUTH_METHOD:  trust
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-5hbjt (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-5hbjt:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             tempo-6cb4d84647-bp8fn
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 13:20:20 +0200
+Labels:           pod-template-hash=6cb4d84647
+                  svc=tempo
+Annotations:      <none>
+Status:           Running
+IP:               10.244.0.16
+IPs:
+  IP:           10.244.0.16
+Controlled By:  ReplicaSet/tempo-6cb4d84647
+Containers:
+  tempo:
+    Container ID:  containerd://8bf2bb4b97687ac9956df816d07c554cea9474a79b0d481cdffe5ea0253dedfb
+    Image:         grafana/tempo:2.7.1
+    Image ID:      sha256:f14c8099799d64e949477be284d7cc80b911147481475c32382b34d8698e4307
+    Ports:         4317/TCP (otlp-grpc), 4318/TCP (otlp-http), 3200/TCP (http)
+    Host Ports:    0/TCP (otlp-grpc), 0/TCP (otlp-http), 0/TCP (http)
+    Args:
+      -config.file=/etc/tempo/tempo.yaml
+    State:          Running
+      Started:      Sun, 15 Nov 2026 13:20:20 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     500m
+      memory:  1Gi
+    Requests:
+      cpu:        100m
+      memory:     256Mi
+    Readiness:    http-get http://:3200/ready delay=10s timeout=1s period=10s successThreshold=1 failureThreshold=3
+    Environment:  <none>
+    Mounts:
+      /etc/tempo from config (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-9rdvf (ro)
+      /var/tempo from data (rw)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  config:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      tempo-config
+    Optional:  false
+  data:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  kube-api-access-9rdvf:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+
+
+Name:             zookeeper-54989dc76d-6bcfh
+Namespace:        eventuate-tram-examples-customers-and-orders
+Priority:         0
+Service Account:  default
+Node:             jvm-rca-control-plane/172.18.0.2
+Start Time:       Sun, 15 Nov 2026 13:20:20 +0200
+Labels:           pod-template-hash=54989dc76d
+                  role=zookeeper
+Annotations:      <none>
+Status:           Running
+IP:               10.244.0.15
+IPs:
+  IP:           10.244.0.15
+Controlled By:  ReplicaSet/zookeeper-54989dc76d
+Containers:
+  zookeeper:
+    Container ID:   containerd://6357d22d994b151034095e0993dd493dc1c8cb25e61bfb06e295184e53280f0a
+    Image:          eventuateio/eventuate-zookeeper:0.22.0.RELEASE
+    Image ID:       sha256:664f974d225c9cc66ebb6aca0087a1d36815ef6bf96731f60fd59a56fcf96047
+    Port:           2181/TCP (zookeeper)
+    Host Port:      0/TCP (zookeeper)
+    State:          Running
+      Started:      Sun, 15 Nov 2026 13:20:20 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     1
+      memory:  512Mi
+    Requests:
+      cpu:     200m
+      memory:  256Mi
+    Environment:
+      ZOOKEEPER_CLIENT_PORT:  2181
+      KAFKA_HEAP_OPTS:        -Xmx128m
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-4vz6c (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-4vz6c:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s

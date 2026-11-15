@@ -1,0 +1,17 @@
+--- Group: customerHistoryServiceEvents ---
+
+GROUP                        TOPIC                                                                   PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                                  HOST            CLIENT-ID
+customerHistoryServiceEvents io.eventuate.examples.tram.ordersandcustomers.customers.domain.Customer 0          -               0               -               consumer-customerHistoryServiceEvents-1-6c0d4100-80f2-4bf2-88d7-2dc9ee37d14d /10.244.0.43    consumer-customerHistoryServiceEvents-1
+customerHistoryServiceEvents io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order       0          -               0               -               consumer-customerHistoryServiceEvents-1-6c0d4100-80f2-4bf2-88d7-2dc9ee37d14d /10.244.0.43    consumer-customerHistoryServiceEvents-1
+customerHistoryServiceEvents io.eventuate.examples.tram.ordersandcustomers.customers.domain.Customer 1          2               2               0               consumer-customerHistoryServiceEvents-1-6c0d4100-80f2-4bf2-88d7-2dc9ee37d14d /10.244.0.43    consumer-customerHistoryServiceEvents-1
+customerHistoryServiceEvents io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order       1          2               2               0               consumer-customerHistoryServiceEvents-1-6c0d4100-80f2-4bf2-88d7-2dc9ee37d14d /10.244.0.43    consumer-customerHistoryServiceEvents-1
+--- Group: customerServiceEvents ---
+
+GROUP                 TOPIC                                                                   PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                           HOST            CLIENT-ID
+customerServiceEvents io.eventuate.examples.tram.ordersandcustomers.customers.domain.Customer 0          -               0               -               consumer-customerServiceEvents-1-ace8a4d2-43a0-463b-bad1-ca423da75453 /10.244.0.42    consumer-customerServiceEvents-1
+customerServiceEvents io.eventuate.examples.tram.ordersandcustomers.customers.domain.Customer 1          2               2               0               consumer-customerServiceEvents-1-ace8a4d2-43a0-463b-bad1-ca423da75453 /10.244.0.42    consumer-customerServiceEvents-1
+--- Group: OrderEventConsumer ---
+
+GROUP              TOPIC                                                             PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                        HOST            CLIENT-ID
+OrderEventConsumer io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order 0          -               0               -               consumer-OrderEventConsumer-1-dc5543b1-d3ee-42e0-a7d1-39fd369961af /10.244.0.41    consumer-OrderEventConsumer-1
+OrderEventConsumer io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order 1          2               2               0               consumer-OrderEventConsumer-1-dc5543b1-d3ee-42e0-a7d1-39fd369961af /10.244.0.41    consumer-OrderEventConsumer-1

@@ -1,0 +1,18 @@
+customerView count: 1
+[
+  {
+    _id: Long("4"),
+    creationTime: Long("1794751700750"),
+    creditLimit: { amount: Decimal128("500") },
+    name: 'Test User',
+    orders: {
+      '4': {
+        orderId: Long("4"),
+        state: 'APPROVED',
+        orderTotal: { amount: Decimal128("150") },
+        _class: 'io.eventuate.examples.tram.ordersandcustomers.orderhistory.backend.OrderInfo'
+      }
+    }
+  }
+]
+

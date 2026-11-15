@@ -33,3 +33,5 @@ ON CONFLICT (installed_rank) DO UPDATE SET
     installed_on = EXCLUDED.installed_on,
     execution_time = EXCLUDED.execution_time,
     success = EXCLUDED.success;
+
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;

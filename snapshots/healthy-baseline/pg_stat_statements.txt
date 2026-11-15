@@ -1,0 +1,41 @@
+ calls | total_ms | mean_ms | rows |                                                query                                                 
+-------+----------+---------+------+------------------------------------------------------------------------------------------------------
+    16 |     0.03 |    0.00 |    0 | BEGIN
+    14 |     0.19 |    0.01 |    0 | SET application_name = $1
+    12 |     0.21 |    0.02 |    0 | SET ROLE $1
+     7 |     0.03 |    0.00 |    7 | select $1
+     6 |     0.24 |    0.04 |    6 | SELECT EXISTS (                                                                                     +
+       |          |         |      |   SELECT $3                                                                                         +
+       |          |         |      |   FROM   pg_catalog.pg_class c                                                                      +
+       |          |         |      |   JOIN   pg_catalog.pg_namespace n ON n.o
+     6 |     0.03 |    0.01 |    6 | SELECT CURRENT_USER
+     6 |     0.04 |    0.01 |    0 | SHOW search_path
+     6 |     0.30 |    0.05 |    6 | update eventuate.cdc_monitoring set last_time = $1 where reader_id = $2
+     5 |     0.02 |    0.00 |    0 | SHOW TRANSACTION ISOLATION LEVEL
+     4 |     0.04 |    0.01 |    4 | SELECT set_config($2, $1, $3)
+     4 |     0.39 |    0.10 |    4 | insert into eventuate.message(id, destination, headers, payload, creation_time, published, message_p
+     4 |     0.39 |    0.10 |    4 | insert into eventuate.received_messages(consumer_id, message_id, creation_time) values($1, $2, (ROUN
+     4 |     0.10 |    0.03 |    8 | SELECT "installed_rank","version","description","type","script","checksum","installed_on","installed
+     4 |     0.01 |    0.00 |    0 | COMMIT
+     4 |     0.06 |    0.02 |    0 | SELECT rolname FROM pg_roles WHERE rolname ILIKE $1
+     4 |     0.03 |    0.01 |    4 | SELECT version()
+     4 |     0.08 |    0.02 |    4 | SELECT COUNT(*) FROM pg_namespace WHERE nspname=$1
+     4 |     0.29 |    0.07 |    4 | select data_type from information_schema.columns where table_schema = $1 and table_name = $2 and col
+     3 |     2.44 |    0.81 |    3 | SELECT setting FROM pg_catalog.pg_settings WHERE name=$1
+     3 |     0.64 |    0.21 |   39 | SELECT current_database() AS "TABLE_CAT", n.nspname AS "TABLE_SCHEM", c.relname AS "TABLE_NAME",  CA
+     3 |     4.02 |    1.34 |  330 | SELECT * FROM (SELECT current_database() AS current_database, n.nspname,c.relname,a.attname,a.atttyp
+     3 |     0.05 |    0.02 |    3 | select o1_0.id,o1_0.customer_id,o1_0.amount,o1_0.rejection_reason,o1_0.state,o1_0.version from order
+     3 |     0.03 |    0.01 |    0 | BEGIN READ ONLY
+     2 |     0.01 |    0.01 |    2 | select current_schema()
+     2 |     0.01 |    0.00 |    2 | select current_catalog
+     2 |     0.35 |    0.17 |    0 | select * from information_schema.sequences
+     2 |     0.96 |    0.48 |    2 | select string_agg(word, $1) from pg_catalog.pg_get_keywords() where word <> ALL ($2::text[])
+     2 |     0.01 |    0.01 |    2 | SELECT pg_try_advisory_xact_lock($1)
+     2 |     0.11 |    0.05 |    2 | SELECT current_schema
+     1 |     0.22 |    0.22 |   11 | SELECT                                                                                              +
+       |          |         |      |   schemaname,                                                                                       +
+       |          |         |      |   relname as table_name,                                                                            +
+       |          |         |      |   n_live_tup as row_count                                                                           +
+       |          |         |      | FROM pg_stat_user_tables
+(30 rows)
+
