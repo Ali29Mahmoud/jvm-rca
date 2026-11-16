@@ -1,0 +1,191 @@
+# ==============================================================================
+# JVM-RCA Benchmark Scenario Specification Template
+# ==============================================================================
+# This template defines the standard specification format for reproducible chaos
+# injection and automated root cause analysis evaluation in the JVM-RCA benchmark.
+#
+# Each scenario represents a discrete fault injected into the target application
+# stack (Java/Spring Boot microservices, Kafka, PostgreSQL, MongoDB, CDC), verified
+# through automated Prometheus symptom checks, paired with comprehensive ground truth,
+# and cleaned up deterministically.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Unique Identification & Metadata
+# ------------------------------------------------------------------------------
+id: SCENARIO-000-template
+name: "Descriptive Scenario Title"
+version: "1.0.0"
+category: jvm                   # Category taxonomy: jvm | kafka | postgres | cdc | network | pod | dependency
+tier: 1                         # Complexity tier: 1 (direct/local), 2 (cascading/downstream), 3 (silent/subtle)
+target:
+  service: order-service        # Target service name (e.g., order-service, customer-service, postgres, kafka)
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: jvm                # Specific layer: jvm | process | container | database | queue | network
+tags:
+  - template
+  - example
+  - memory-pressure
+
+description: >-
+  Detailed human-readable description of what fault is introduced, how it manifests
+  in the service, and what system behaviors are expected.
+
+# ------------------------------------------------------------------------------
+# 2. Chaos Injection Definition (inject)
+# ------------------------------------------------------------------------------
+# Defines how the fault is applied to the cluster.
+# Supports native Chaos Mesh CRDs (PodChaos, NetworkChaos, StressChaos, JVMChaos, etc.),
+# Kubernetes manifests/patches, or shell actions.
+inject:
+  type: chaos-mesh              # Injection engine: chaos-mesh | k8s-patch | exec
+  timeout: 180s                 # Timeout for the fault to be established
+
+  # When type == "chaos-mesh", specify inline Chaos Mesh Custom Resource or file reference:
+  chaos_mesh:
+    apiVersion: chaos-mesh.org/v1alpha1
+    kind: StressChaos           # Example: PodChaos, NetworkChaos, StressChaos, JVMChaos, IOChaos
+    metadata:
+      name: scenario-000-stress
+      namespace: default        # Namespace where the chaos custom resource is created
+    spec:
+      mode: one
+      selector:
+        namespaces:
+          - eventuate-tram-examples-customers-and-orders
+        labelSelectors:
+          app: order-service
+      stressors:
+        memory:
+          workers: 1
+          size: "256MB"
+
+  # Optional alternative / additional commands executed during injection:
+  # commands:
+  #   - kubectl scale deployment customer-service -n eventuate-tram-examples-customers-and-orders --replicas=0
+
+# ------------------------------------------------------------------------------
+# 3. Symptom Verification with PromQL (symptom_check)
+# ------------------------------------------------------------------------------
+# Automated check executed by the benchmark harness against Prometheus to confirm
+# that the injected fault has actively induced measurable symptoms before the
+# diagnosis agent begins investigation.
+symptom_check:
+  description: "Verify that order-service memory usage exceeds the symptom threshold."
+  # PromQL query to evaluate against Prometheus (http://monitoring-kube-prometheus-prometheus.monitoring:9090)
+  promql: >-
+    sum(jvm_memory_used_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="order-service"})
+    /
+    sum(jvm_memory_max_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="order-service"})
+    * 100
+
+  # Evaluation condition against the PromQL scalar/vector result
+  operator: ">="                # Supported operators: ==, !=, >, >=, <, <=, absent, present
+  threshold: 85.0               # Numerical threshold or string value to compare against
+  unit: "percent"               # Informational metric unit (e.g., percent, milliseconds, count)
+
+  # Timing and retry policies
+  wait:
+    initial_delay_seconds: 15   # Time to wait before polling Prometheus (allow metric scrape cycle)
+    interval_seconds: 5         # Poll interval between PromQL queries
+    timeout_seconds: 180        # Maximum time to wait for the symptom to manifest
+    stabilization_duration: 10s # Required duration the threshold must be continuously breached
+
+# ------------------------------------------------------------------------------
+# 4. Agent Input & Budgets
+# ------------------------------------------------------------------------------
+# The prompt and operational constraints provided to the AI SRE agent under test.
+agent_input:
+  prompt: >-
+    An alert fired: order-service is experiencing severe heap memory pressure and elevated
+    response latency in namespace eventuate-tram-examples-customers-and-orders.
+    Investigate the system, identify the root cause, determine the culprit component,
+    gather supporting evidence from telemetry/system state, and propose the correct remediation.
+  budgets:
+    max_steps: 30               # Maximum tool invocation steps allowed
+    time_limit_seconds: 300     # Maximum wall-clock time in seconds
+    token_budget: 100000        # Approximate LLM token limit
+
+# ------------------------------------------------------------------------------
+# 5. Ground Truth Definition (ground_truth)
+# ------------------------------------------------------------------------------
+# Authoritative ground truth used by deterministic evaluators and LLM judges to
+# score the agent's diagnosis report.
+ground_truth:
+  # Exact culprit entity causing the failure
+  culprit:
+    service: order-service
+    component: jvm-heap
+    container: order-service
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  # Precise category classification for benchmark taxonomy
+  category: jvm_resource_exhaustion
+
+  # Human-expert explanation of the root cause
+  root_cause: >-
+    Order-service heap memory is exhausted by an excessive stressor allocating heap objects,
+    saturating memory pools and triggering frequent stop-the-world garbage collection cycles.
+
+  # Downstream services and user-facing capabilities impacted
+  affected_services:
+    - order-service
+    - api-gateway-service
+
+  # Key evidence that a high-performing agent is expected to identify
+  expected_evidence:
+    metrics:
+      - "jvm_memory_used_bytes for heap area exceeding 85% of max"
+      - "jvm_gc_pause_seconds_count or jvm_gc_pause_seconds_sum spike"
+    logs:
+      - "java.lang.OutOfMemoryError: Java heap space (if crashed)"
+      - "High GC pause times or slow request processing logs"
+    traces:
+      - "Spike in HTTP duration for POST /orders span in api-gateway-service or order-service"
+    k8s_events:
+      - "OOMKilled container events or pod restart events (if memory limit exceeded)"
+
+  # Expected tools the agent should use to discover this root cause
+  expected_tools:
+    - query_prometheus
+    - get_pod_logs
+    - describe_pod
+
+  # Valid remediation action to resolve the failure
+  remediation:
+    summary: "Terminate the memory stressor process or delete the StressChaos custom resource."
+    verification: "Prometheus heap usage drops back below 60% and GC pause rates normalize."
+
+# ------------------------------------------------------------------------------
+# 6. Cleanup & Environment Teardown (cleanup)
+# ------------------------------------------------------------------------------
+# Deterministic teardown actions to restore the cluster to a healthy baseline.
+cleanup:
+  # Chaos Mesh resources to delete
+  chaos_mesh:
+    resources:
+      - kind: StressChaos
+        name: scenario-000-stress
+        namespace: default
+
+  # Kubernetes objects or configurations to restore/delete
+  k8s:
+    delete: []
+    # - kind: ConfigMap
+    #   name: temp-config
+    #   namespace: eventuate-tram-examples-customers-and-orders
+
+  # Explicit shell commands to reset state (e.g., restart pods, reset topics/DB)
+  commands:
+    - "kubectl delete stresschaos scenario-000-stress -n default --ignore-not-found"
+
+  # Validation check to ensure system has completely returned to healthy baseline
+  baseline_verification:
+    promql: >-
+      sum(jvm_memory_used_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="order-service"})
+      /
+      sum(jvm_memory_max_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="order-service"})
+      * 100
+    operator: "<"
+    threshold: 75.0
+    timeout_seconds: 60
