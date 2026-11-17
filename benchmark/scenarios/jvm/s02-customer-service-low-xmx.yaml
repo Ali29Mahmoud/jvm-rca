@@ -1,0 +1,185 @@
+# ==============================================================================
+# Scenario S02: Constrain customer-service Max Heap via JAVA_TOOL_OPTIONS
+# ==============================================================================
+# This scenario simulates an application JVM configuration error where an
+# excessively low maximum heap limit (-Xmx64m or -Xmx96m) is injected through
+# the JAVA_TOOL_OPTIONS environment variable, paired with GC logging enabled
+# (-Xlog:gc*:stdout:time,uptime,level,tags). Under normal runtime or customer
+# validation load, the customer-service JVM rapidly exhausts its heap space,
+# leading to excessive GC thrashing, stop-the-world pauses, and eventual
+# java.lang.OutOfMemoryError: Java heap space.
+# ==============================================================================
+
+id: S02-customer-service-low-xmx
+name: "Set Small -Xmx on customer-service via JAVA_TOOL_OPTIONS with GC Logging"
+version: "1.0.0"
+category: jvm
+tier: 1
+target:
+  service: customer-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: jvm-heap
+tags:
+  - jvm
+  - heap
+  - xmx
+  - gc-thrashing
+  - oom
+  - java-tool-options
+  - gc-logging
+
+description: >-
+  The customer-service deployment is reconfigured via JAVA_TOOL_OPTIONS to append
+  a heavily restricted heap maximum (-Xmx64m) and explicit Unified JVM GC logging
+  (-Xlog:gc*:stdout:time,uptime,level,tags). When credit reservation events or customer
+  creation requests arrive, available heap space is saturated immediately. The JVM
+  spends near 100% of CPU time performing GC cycles, GC pause durations skyrocket,
+  and requests time out or fail with java.lang.OutOfMemoryError.
+
+# ------------------------------------------------------------------------------
+# Fault Injection Definition
+# ------------------------------------------------------------------------------
+inject:
+  type: k8s-patch
+  timeout: 180s
+  commands:
+    # 1. Inject JAVA_TOOL_OPTIONS on customer-service to restrict heap and enable GC logging
+    - >-
+      kubectl set env deployment/customer-service
+      -n eventuate-tram-examples-customers-and-orders
+      JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar -Xms32m -Xmx64m -Xlog:gc*:stdout:time,uptime,level,tags"
+    # 2. Wait for customer-service rollout to pick up the updated JVM options
+    - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    # 3. Generate customer / order credit check traffic to exercise the restricted heap
+    - >-
+      GATEWAY_URL="http://127.0.0.1:8085"
+      k6 run --vus 5 --duration 2m k6/load-test.js &
+
+# ------------------------------------------------------------------------------
+# Symptom Verification with PromQL
+# ------------------------------------------------------------------------------
+symptom_check:
+  description: >-
+    Verify that customer-service JVM heap utilization exceeds 90% of max heap
+    or GC pause time rate elevates significantly.
+  promql: >-
+    (
+      sum(jvm_memory_used_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="customer-service"})
+      /
+      sum(jvm_memory_max_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="customer-service"})
+    ) * 100
+  operator: ">="
+  threshold: 90.0
+  unit: "percent"
+  wait:
+    initial_delay_seconds: 25
+    interval_seconds: 5
+    timeout_seconds: 180
+    stabilization_duration: 10s
+
+# ------------------------------------------------------------------------------
+# Agent Input & Constraints
+# ------------------------------------------------------------------------------
+agent_input:
+  prompt: >-
+    Alert: customer-service in namespace eventuate-tram-examples-customers-and-orders is responding
+    with severe latency spikes and HTTP 500 errors. JVM telemetry indicates severe garbage collection
+    pauses and memory exhaustion.
+    Investigate the system, find the root cause, identify the culprit, provide supporting evidence,
+    and describe the proper remediation.
+  budgets:
+    max_steps: 25
+    time_limit_seconds: 300
+    token_budget: 100000
+
+# ------------------------------------------------------------------------------
+# Authoritative Ground Truth
+# ------------------------------------------------------------------------------
+ground_truth:
+  culprit:
+    service: customer-service
+    component: jvm-configuration
+    container: customer-service
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: jvm_heap_exhaustion
+
+  root_cause: >-
+    customer-service container environment variable JAVA_TOOL_OPTIONS was configured with
+    -Xmx64m, severely restricting maximum JVM heap memory below normal Spring Boot microservice
+    operational requirements. Under load, garbage collection runs constantly without freeing
+    sufficient heap space, leading to extreme GC latency pauses and java.lang.OutOfMemoryError.
+
+  affected_services:
+    - customer-service
+    - order-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "jvm_memory_used_bytes for heap area exceeding 90% of jvm_memory_max_bytes"
+      - "jvm_memory_max_bytes{area='heap', application='customer-service'} <= 67108864 (64MiB)"
+      - "Rate of jvm_gc_pause_seconds_sum or jvm_gc_pause_seconds_count spiking dramatically"
+      - "jvm_buffer_total_capacity_bytes and jvm_threads_live_threads showing stalled execution"
+    logs:
+      - "GC log entries like '[gc] GC(x) Pause Young / Full GC' occurring in continuous succession"
+      - "java.lang.OutOfMemoryError: Java heap space"
+    traces:
+      - "Customer reservation spans timing out or recording HTTP 500 responses"
+    k8s_events:
+      - "Liveness/readiness probe failures if probe HTTP endpoint times out due to GC stop-the-world pauses"
+
+  expected_tools:
+    - query_prometheus
+    - get_pod_logs
+    - describe_pod
+
+  remediation:
+    summary: >-
+      Remove the restrictive -Xmx64m argument from JAVA_TOOL_OPTIONS in the customer-service
+      Deployment manifest to allow the JVM default ergonomics (or standard production heap sizing).
+    patch:
+      kubectl: >-
+        kubectl patch deployment customer-service -n eventuate-tram-examples-customers-and-orders
+        --type='json'
+        -p='[
+          {
+            "op": "replace",
+            "path": "/spec/template/spec/containers/0/env/1/value",
+            "value": "-javaagent:/otel/opentelemetry-javaagent.jar"
+          }
+        ]'
+    verification: >-
+      customer-service restarts with standard heap size, jvm_memory_max_bytes reflects normal
+      limits (>256MiB), GC pause rates normalize, and health checks pass.
+
+# ------------------------------------------------------------------------------
+# Cleanup & Restoration
+# ------------------------------------------------------------------------------
+cleanup:
+  chaos_mesh:
+    resources: []
+
+  k8s:
+    delete: []
+
+  commands:
+    # 1. Terminate background load processes
+    - "pkill -f 'k6 run' || true"
+    # 2. Remove JAVA_TOOL_OPTIONS restriction
+    - >-
+      kubectl set env deployment/customer-service
+      -n eventuate-tram-examples-customers-and-orders
+      JAVA_TOOL_OPTIONS-
+    # 3. Wait for rollout completion
+    - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+
+  baseline_verification:
+    promql: >-
+      sum(jvm_memory_used_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="customer-service"})
+      /
+      sum(jvm_memory_max_bytes{area="heap", namespace="eventuate-tram-examples-customers-and-orders", application="customer-service"})
+      * 100
+    operator: "<"
+    threshold: 80.0
+    timeout_seconds: 90

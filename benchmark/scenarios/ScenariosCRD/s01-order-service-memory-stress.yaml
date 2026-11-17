@@ -1,0 +1,19 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: order-service-memory-stress
+  namespace: eventuate-tram-examples-customers-and-orders
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - eventuate-tram-examples-customers-and-orders
+    labelSelectors:
+      svc: order-service
+  stressors:
+    memory:
+      workers: 2
+      # Inject 850MB memory stress inside order-service container (limit is 1024Mi)
+      # Pushes total memory usage past the cgroup ceiling to trigger Linux kernel OOMKill
+      size: "850MB"
+  duration: "5m"

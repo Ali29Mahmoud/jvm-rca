@@ -1,0 +1,18 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: order-service-cpu-stress
+  namespace: eventuate-tram-examples-customers-and-orders
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - eventuate-tram-examples-customers-and-orders
+    labelSelectors:
+      svc: order-service
+  stressors:
+    cpu:
+      workers: 2
+      # Burn 100% CPU on 2 workers to trigger CFS throttling and severe response latency
+      load: 100
+  duration: "5m"

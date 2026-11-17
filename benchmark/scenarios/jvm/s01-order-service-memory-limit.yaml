@@ -1,0 +1,178 @@
+# ==============================================================================
+# Scenario S01: Lower order-service Memory Limit Under Load (OOMKilled)
+# ==============================================================================
+# This scenario simulates an operational misconfiguration where order-service's
+# container memory limits are lowered to an unsustainable threshold (256Mi),
+# below the combined memory footprint of the Spring Boot runtime, JVM metaspace,
+# and OpenTelemetry Java agent. When synthetic order generation load is driven,
+# the cgroup memory limit is exceeded, triggering Linux kernel cgroup OOM kills
+# and repeated CrashLoopBackOff container restarts.
+# ==============================================================================
+
+id: S01-order-service-memory-limit-lowered
+name: "Lower order-service Memory Limit Under Load"
+version: "1.0.0"
+category: jvm
+tier: 1
+target:
+  service: order-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: container-memory-limit
+tags:
+  - jvm
+  - oomkilled
+  - cgroup
+  - memory-limit
+  - load
+  - crashloop
+
+description: >-
+  Under baseline traffic or synthetic load (k6 load generator), the memory limit
+  of the order-service deployment container is patched down from 1024Mi to 256Mi
+  (requests: 200Mi, limits: 256Mi). Since the Java 17 process with OpenTelemetry
+  instrumentation agent requires >350Mi of working set memory under active traffic,
+  the container immediately hits the cgroup memory ceiling, causing kernel SIGKILL
+  (Exit Code 137 / OOMKilled), pod restarts, and cascading HTTP 500/503 errors
+  at the API gateway.
+
+# ------------------------------------------------------------------------------
+# Fault Injection Definition
+# ------------------------------------------------------------------------------
+inject:
+  type: k8s-patch
+  timeout: 180s
+  commands:
+    # 1. Start k6 background traffic generator to induce steady order load
+    - >-
+      GATEWAY_URL="http://127.0.0.1:8085"
+      k6 run --vus 10 --duration 3m k6/load-test.js &
+    # 2. Patch order-service deployment memory limits down to 256Mi
+    - >-
+      kubectl patch deployment order-service
+      -n eventuate-tram-examples-customers-and-orders
+      --type='json'
+      -p='[
+        {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/memory", "value": "200Mi"},
+        {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/memory", "value": "256Mi"}
+      ]'
+
+# ------------------------------------------------------------------------------
+# Symptom Verification with PromQL
+# ------------------------------------------------------------------------------
+symptom_check:
+  description: >-
+    Verify that order-service pod experiences container termination with OOMKilled
+    or restart count increases within the observation window.
+  promql: >-
+    increase(kube_pod_container_status_restarts_total{namespace="eventuate-tram-examples-customers-and-orders", container="order-service"}[2m])
+  operator: ">="
+  threshold: 1.0
+  unit: "restarts"
+  wait:
+    initial_delay_seconds: 20
+    interval_seconds: 5
+    timeout_seconds: 180
+    stabilization_duration: 10s
+
+# ------------------------------------------------------------------------------
+# Agent Input & Constraints
+# ------------------------------------------------------------------------------
+agent_input:
+  prompt: >-
+    Alert: order-service in namespace eventuate-tram-examples-customers-and-orders is restarting
+    repeatedly and HTTP requests to /orders are failing with 502/503 errors.
+    Investigate the cluster and telemetry to determine the root cause, identify the culprit,
+    provide evidence, and suggest the fix.
+  budgets:
+    max_steps: 25
+    time_limit_seconds: 300
+    token_budget: 100000
+
+# ------------------------------------------------------------------------------
+# Authoritative Ground Truth
+# ------------------------------------------------------------------------------
+ground_truth:
+  culprit:
+    service: order-service
+    component: container-resources
+    container: order-service
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: jvm_resource_exhaustion
+
+  root_cause: >-
+    The container memory limit for order-service was set to 256Mi, which is insufficient
+    for the Spring Boot JVM process, heap allocations under traffic, non-heap metaspace,
+    and the OpenTelemetry Java instrumentation agent. The Linux cgroup controller killed
+    the container with exit code 137 (OOMKilled).
+
+  affected_services:
+    - order-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "container_memory_working_set_bytes close to or matching container_spec_memory_limit_bytes"
+      - "kube_pod_container_status_last_terminated_reason{reason='OOMKilled', container='order-service'} == 1"
+      - "kube_pod_container_status_restarts_total increasing on order-service"
+      - "http_server_requests_seconds_count error spike or gateway 502/503 responses"
+    logs:
+      - "No Java OutOfMemoryError in logs (sudden death from OS SIGKILL 137)"
+      - "Container restarted with previous log terminating abruptly during request handling"
+    traces:
+      - "Failed traces with connection refused or socket timeout connecting to order-service:8081"
+    k8s_events:
+      - "Pod events showing Reason: OOMKilled, Exit Code: 137, Back-off restarting failed container"
+
+  expected_tools:
+    - describe_pod
+    - get_pod_logs
+    - query_prometheus
+
+  remediation:
+    summary: >-
+      Increase order-service container memory requests to at least 512Mi and memory limits
+      to at least 1024Mi in the Deployment manifest.
+    patch:
+      kubectl: >-
+        kubectl patch deployment order-service -n eventuate-tram-examples-customers-and-orders
+        --type='json'
+        -p='[
+          {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/memory", "value": "512Mi"},
+          {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/memory", "value": "1024Mi"}
+        ]'
+    verification: >-
+      Pod restarts cease, order-service reaches 1/1 Running state, and Prometheus query
+      kube_pod_container_status_waiting_reason{container="order-service"} is 0.
+
+# ------------------------------------------------------------------------------
+# Cleanup & Restoration
+# ------------------------------------------------------------------------------
+cleanup:
+  chaos_mesh:
+    resources: []
+
+  k8s:
+    delete: []
+
+  commands:
+    # 1. Stop any lingering background k6 test processes
+    - "pkill -f 'k6 run' || true"
+    # 2. Restore standard memory allocations
+    - >-
+      kubectl patch deployment order-service
+      -n eventuate-tram-examples-customers-and-orders
+      --type='json'
+      -p='[
+        {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/memory", "value": "512Mi"},
+        {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/memory", "value": "1024Mi"}
+      ]'
+    # 3. Wait for rollout to finish
+    - "kubectl rollout status deployment/order-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+
+  baseline_verification:
+    promql: >-
+      kube_pod_container_status_ready{namespace="eventuate-tram-examples-customers-and-orders", container="order-service"}
+    operator: "=="
+    threshold: 1.0
+    timeout_seconds: 120

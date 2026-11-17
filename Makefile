@@ -249,6 +249,14 @@ test:
 reset:
 	@bash scripts/reset-environment.sh
 
+## Run and validate benchmark scenario: make scenario s=s01 [action=all|inject|validate|cleanup]
+scenario:
+	@python3 benchmark/run_scenario.py $(s) --action $(or $(action),all)
+
+## Clean up active benchmark scenario: make scenario-clean s=s01
+scenario-clean:
+	@python3 benchmark/run_scenario.py $(s) --action cleanup
+
 ## Capture healthy-baseline state snapshot
 snapshot:
 	@bash scripts/capture-snapshot.sh snapshots/healthy-baseline
