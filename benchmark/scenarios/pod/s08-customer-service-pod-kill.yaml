@@ -1,0 +1,174 @@
+id: S08-customer-service-pod-kill
+name: "PodChaos Kill Loop on customer-service Causing Restarts and Consumer Rebalances"
+version: "1.0.0"
+category: pod
+tier: 1
+target:
+  service: customer-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: pod-lifecycle
+tags:
+  - pod
+  - pod-kill
+  - chaos-mesh
+  - customer-service
+  - restarts
+  - kafka
+  - consumer-rebalance
+  - gateway-errors
+
+description: >-
+  A Chaos Mesh Schedule resource kills one customer-service pod every 30 seconds
+  in the application namespace. Each kill forces a container restart (~15-30s
+  Spring Boot startup time), during which the customer-service is unavailable.
+  The Kafka consumer group for customer-service loses its member and initiates
+  a rebalance. During the outage, order creation sagas (which require credit
+  reservation by customer-service) stall or fail, and direct customer lookups
+  return HTTP 502/503 errors at the gateway. Over time, consumer lag displays a
+  characteristic sawtooth pattern (spiking during restarts, draining when the
+  pod recovers, spiking again on the next kill).
+
+inject:
+  type: chaos-mesh
+  timeout: 180s
+
+  chaos_mesh:
+    apiVersion: chaos-mesh.org/v1alpha1
+    kind: Schedule
+    metadata:
+      name: s08-customer-service-pod-kill
+      namespace: eventuate-tram-examples-customers-and-orders
+    spec:
+      schedule: "@every 30s"
+      type: PodChaos
+      podChaos:
+        action: pod-kill
+        mode: one
+        selector:
+          namespaces:
+            - eventuate-tram-examples-customers-and-orders
+          labelSelectors:
+            svc: customer-service
+
+  commands:
+    - >-
+      GATEWAY_URL="http://127.0.0.1:8085"
+      k6 run --vus 5 --duration 2m k6/load-test.js &
+
+symptom_check:
+  description: >-
+    Verify that customer-service container restarts have increased due to the
+    recurring pod kills. The restart count should increase by at least 2 within
+    the 3-minute window (since kills occur every 30s).
+  promql: >-
+    increase(kube_pod_container_status_restarts_total{
+      namespace="eventuate-tram-examples-customers-and-orders",
+      container="customer-service"
+    }[3m])
+  operator: ">="
+  threshold: 2.0
+  unit: "restarts"
+  wait:
+    initial_delay_seconds: 45
+    interval_seconds: 15
+    timeout_seconds: 180
+    stabilization_duration: 15s
+
+agent_input:
+  prompt: >-
+    Alert: customer-service pods in namespace eventuate-tram-examples-customers-and-orders
+    are restarting repeatedly. Requests to /customers and /orders intermittently fail with
+    502 Bad Gateway and 503 Service Unavailable. Kafka consumer lag on customer-service
+    topics shows a sawtooth pattern with frequent consumer group rebalances.
+    Investigate the system to determine why the pods are dying, identify the culprit,
+    gather evidence from metrics, logs and traces, and propose the correct fix.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: customer-service
+    component: pod-lifecycle
+    container: customer-service
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: pod_disruption
+
+  root_cause: >-
+    A Chaos Mesh Schedule (PodChaos) resource is repeatedly killing customer-service
+    pods every 30 seconds. Each kill terminates the active pod, forcing Kubernetes
+    to create a replacement replica. The repeated termination disrupts the Kafka
+    consumer group membership, causing rebalances and a sawtooth consumer lag
+    pattern. Gateway requests routed to customer-service during the startup window
+    fail with connection errors (502/503).
+
+  affected_services:
+    - customer-service
+    - order-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "increase(kube_pod_container_status_restarts_total{container='customer-service'}[3m]) >= 2"
+      - "kube_pod_status_phase{phase='Running'} drops intermittently as pods are recreated"
+      - "rate(http_server_requests_seconds_count{status=~'5..', application='api-gateway-service'}[1m]) spikes intermittently"
+      - "Kafka consumer lag shows periodic spikes and drops (sawtooth pattern)"
+    logs:
+      - "SIGTERM / process exit without JVM fatal error in customer-service container logs"
+      - "Kafka consumer rebalance log entries: 'Revoking previously assigned partitions' / 'Setting newly assigned partitions'"
+      - "Gateway error logs: Connection refused or WebClientResponseException on customerServiceUrl"
+    traces:
+      - "Intermittent 502/503 traces on /customers and /orders routes"
+      - "Spans failing with connection refused to customer-service:8082"
+    k8s_events:
+      - "Killing container events on customer-service pods"
+      - "Schedule / PodChaos resource visible: kubectl get schedule,podchaos"
+      - "Pod lifecycle events: Created -> Started -> Killing -> Terminated in rapid succession"
+
+  expected_tools:
+    - query_prometheus
+    - describe_pod
+    - get_pod_logs
+    - kubectl_get
+
+  remediation:
+    summary: >-
+      Delete the Chaos Mesh Schedule/PodChaos resource causing recurring pod kills.
+      If this is an operational issue rather than chaos testing, investigate
+      external controllers, node pressure, or cronjobs terminating pods.
+    patch:
+      kubectl: >-
+        kubectl delete schedule s08-customer-service-pod-kill
+        -n eventuate-tram-examples-customers-and-orders
+    verification: >-
+      Customer-service pod restart count stabilizes (no new restarts for 3+ minutes),
+      the pod remains Ready (1/1), Kafka consumer group rebalances stop, and 502/503
+      error rate returns to 0.
+
+cleanup:
+  chaos_mesh:
+    resources:
+      - kind: Schedule
+        name: s08-customer-service-pod-kill
+        namespace: eventuate-tram-examples-customers-and-orders
+
+  k8s:
+    delete: []
+
+  commands:
+    - "pkill -f 'k6 run' || true"
+    - "kubectl delete schedule s08-customer-service-pod-kill -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
+    - "kubectl delete podchaos s08-customer-service-pod-kill -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
+    - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+
+  baseline_verification:
+    promql: >-
+      kube_pod_container_status_ready{
+        namespace="eventuate-tram-examples-customers-and-orders",
+        container="customer-service"
+      }
+    operator: "=="
+    threshold: 1.0
+    timeout_seconds: 120

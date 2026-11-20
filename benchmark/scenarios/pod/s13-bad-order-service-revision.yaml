@@ -1,0 +1,58 @@
+id: S13-bad-order-service-revision
+name: "Bad Revision of order-service (wrong setting)"
+version: "1.0.0"
+category: pod
+tier: 2
+target:
+  service: order-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: Deployment
+
+description: >-
+  Apply a faulty environment variable (e.g., `INVALID_SETTING=true`) to the
+  `order-service` deployment and trigger a rollout. Verify that the pod crashes
+  (CrashLoopBackOff) and that error counters rise. Then execute `kubectl rollout
+  undo` to restore the previous good revision and verify that the service
+  recovers.
+
+inject:
+  type: exec
+  commands:
+    - >-
+      kubectl patch deployment order-service -n eventuate-tram-examples-customers-and-orders \
+        --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"INVALID_SETTING","value":"true"}}]'
+    - >-
+      kubectl rollout status deployment order-service -n eventuate-tram-examples-customers-and-orders --timeout=60s
+
+symptom_check:
+  description: >-
+    The `order-service` pod enters CrashLoopBackOff, error logs increase, and the
+    `logback_events_total{level="error"}` metric for `order-service` rises.
+  promql: >-
+    logback_events_total{application="order-service",level="error"} > 0
+  operator: ">"
+  wait:
+    initial_delay_seconds: 10
+    interval_seconds: 5
+    timeout_seconds: 120
+    stabilization_duration: 5s
+
+verification:
+  steps:
+    - >-
+      kubectl rollout undo deployment order-service -n eventuate-tram-examples-customers-and-orders
+    - >-
+      kubectl rollout status deployment order-service -n eventuate-tram-examples-customers-and-orders --timeout=60s
+    - >-
+      echo "Verify error metric baseline"
+
+ground_truth:
+  culprit:
+    service: order-service
+    component: Deployment
+    namespace: eventuate-tram-examples-customers-and-orders
+  category: bad_revision
+  expected_evidence:
+    - "Pod status = CrashLoopBackOff"
+    - "logback_events_total{application=\"order-service\",level=\"error\"} increases"
+    - "Rollback restores healthy pods"
