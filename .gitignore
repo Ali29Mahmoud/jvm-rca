@@ -28,3 +28,12 @@ diagrams/order-saga-flow.md
 diagrams/observability-pipeline.md
 diagrams/environment-reset-flow.md
 diagrams/chaos-benchmark-flow.md
+scripts/lock-customer-row.py
+k6/load-single-customer.js
+port_forward.py
+rbac.yaml
+benchmark/run_scenario.py
+diagrams/README.md
+run_baseline.sh
+run_baseline.sh
+run_baseline.sh

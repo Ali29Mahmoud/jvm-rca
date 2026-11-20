@@ -107,3 +107,21 @@ Reusable form: `scripts/reset-consumer-group.sh customer-service OrderEventConsu
 postgres pod) held 11 rows, all `published = 0` (5 Order, 6 Customer events); not modified.
 
 Scenario S09 (poison message): confirmed that one order created with a null customerId stalls the consumer permanently, and the stall survives restarts.
+
+## Scenario Evaluations & Empirical Behavior (S09, S10, S12)
+
+### S09: Malformed Record via Kafka Console Producer
+- **Test action:** Published malformed record with the Kafka console producer to the Order topic consumed by `customer-service`.
+- **Real behavior:** **Loops** on failure. Ingestion of the malformed record causes `customer-service`'s `OrderEventConsumer` to throw an unhandled exception (`StreamReadException` / `NullPointerException`), causing `SwimlaneDispatcher` to terminate the consumer thread (`Exception handling message - terminating`). Because the failing record's offset is never committed, the consumer group loses its member and upon rejoin re-reads the malformed record in a crash-restart loop. Consumer lag increases and orders remain stuck in `PENDING`.
+- **Decision:** **KEEP**. Highly realistic scenario testing Kafka deserialization failures, consumer group crash-loops, and offset skip remediation.
+
+### S10: Single Customer Hotspot / Partition Skew Load Variant
+- **Test action:** Executed load variant (`k6/load-single-customer.js`) routing all order traffic to a single customer ID; inspected keys, offsets, and partition distributions with Kafka CLI tools.
+- **Real behavior:** **Blocks** / bottleneck. Partitioning is keyed to the customer aggregate. One partition's offsets and lag grow far more than the others. The single consumer thread processing that partition becomes bottlenecked, creating unbalanced consumer lag and localized database contention while other partitions remain idle.
+- **Decision:** **KEEP**. Demonstrates uneven Kafka partition distribution and hotspotting diagnostics under consumer group monitoring.
+
+### S12: Postgres Customer Row Lock Contention
+- **Test action:** Executed harness script (`scripts/lock-customer-row.py`) acquiring exclusive row lock (`SELECT ... FOR UPDATE`) on the customer record and holding it for $N$ seconds.
+- **Real behavior:** **Blocks** saga completion. While the row lock is held, `customer-service` attempts credit reservation and blocks on PostgreSQL transaction execution. Orders stay `PENDING`, `pg_locks` shows a blocked session waiting for lock acquisition (`granted = false`), and releasing the lock lets the saga finish and transition orders to `APPROVED`.
+- **Decision:** **KEEP**. Provides clean, deterministic database lock contention root cause diagnosis without permanent cascading destruction.
+
