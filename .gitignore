@@ -16,3 +16,15 @@ tmp-migration
 bin
 .vscode
 .env
+docs/system-testing-guide.md
+diagrams/tech-terraform-kind-automation.md
+diagrams/tech-prometheus-architecture.md
+diagrams/tech-opentelemetry-tracing.md
+diagrams/tech-loki-promtail.md
+diagrams/tech-kafka-eventuate-cdc.md
+diagrams/tech-chaos-mesh.md
+diagrams/system-architecture.md
+diagrams/order-saga-flow.md
+diagrams/observability-pipeline.md
+diagrams/environment-reset-flow.md
+diagrams/chaos-benchmark-flow.md
