@@ -1,0 +1,186 @@
+id: S06-postgres-network-delay
+name: "NetworkChaos Delay on Postgres Path Causing App-Side Latency Spikes"
+version: "1.0.0"
+category: network
+tier: 2
+target:
+  service: postgres
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: network-delay
+tags:
+  - network
+  - latency
+  - chaos-mesh
+  - postgres
+  - database
+  - hikaricp
+  - connection-pool
+
+description: >-
+  A Chaos Mesh NetworkChaos resource injects 2000ms ± 300ms of network delay on
+  all pods with label role=postgres in the application namespace. Application
+  services (order-service, customer-service) that connect to Postgres via
+  HikariCP experience dramatically elevated DB query round-trip times. HTTP
+  request latency on DB-dependent routes (e.g. POST /orders, GET /customers)
+  spikes well above 2 seconds. Meanwhile, Postgres-internal metrics such as
+  pg_stat_activity_count and connection utilization remain normal, confirming
+  that the database engine itself is healthy — only the network path between
+  the application pods and Postgres is degraded. HikariCP connection acquisition
+  times increase as connections are held longer due to slow network I/O.
+
+inject:
+  type: chaos-mesh
+  timeout: 180s
+
+  chaos_mesh:
+    apiVersion: chaos-mesh.org/v1alpha1
+    kind: NetworkChaos
+    metadata:
+      name: s06-postgres-network-delay
+      namespace: eventuate-tram-examples-customers-and-orders
+    spec:
+      action: delay
+      mode: all
+      selector:
+        namespaces:
+          - eventuate-tram-examples-customers-and-orders
+        labelSelectors:
+          role: postgres
+      delay:
+        latency: "2000ms"
+        correlation: "50"
+        jitter: "300ms"
+      duration: "3m"
+
+  commands:
+    - >-
+      GATEWAY_URL="http://127.0.0.1:8085" CUSTOMER_COUNT=5
+      k6 run --vus 10 --duration 3m k6/load-test.js &
+
+symptom_check:
+  description: >-
+    Verify that application-side HTTP request duration for DB-dependent routes
+    has spiked due to the injected Postgres network delay. The maximum latency
+    for order-service routes (which performs DB writes on every order creation)
+    should exceed 2 seconds. Meanwhile, Postgres itself is healthy — the delay
+    is purely on the network path.
+  promql: >-
+    max(http_server_requests_seconds_max{
+      namespace="eventuate-tram-examples-customers-and-orders",
+      application="order-service",
+      uri=~"/orders.*"
+    })
+  operator: ">="
+  threshold: 2.0
+  unit: "seconds"
+  wait:
+    initial_delay_seconds: 30
+    interval_seconds: 10
+    timeout_seconds: 180
+    stabilization_duration: 15s
+
+agent_input:
+  prompt: >-
+    Alert: The order-service and customer-service in namespace
+    eventuate-tram-examples-customers-and-orders are experiencing extreme latency
+    spikes on database-dependent routes. HTTP response times have jumped from
+    under 200ms to over 2 seconds. Database connection pool metrics show
+    connections being held much longer than usual, but the Postgres database
+    pods appear to be running normally with healthy internal metrics.
+    Investigate the system to determine the root cause, identify the culprit
+    component, gather evidence from metrics, logs and traces, and propose the
+    correct fix.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: postgres
+    component: network-delay
+    container: postgres
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: network_latency_injection
+
+  root_cause: >-
+    A Chaos Mesh NetworkChaos resource is injecting 2000ms ± 300ms of network
+    delay on all pods with label role=postgres. Every database query from
+    order-service and customer-service incurs an additional ~2 seconds of
+    network round-trip time. This causes HikariCP connection acquisition to
+    slow down (connections are held longer), HTTP request latency on
+    DB-dependent routes to spike above 2 seconds, and potential connection
+    pool exhaustion under sustained load. The Postgres database engine itself
+    is healthy — pg_stat_activity shows normal query execution times
+    internally, confirming the bottleneck is purely network-side.
+
+  affected_services:
+    - order-service
+    - customer-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "http_server_requests_seconds p95 for order-service s on DB-dependent routes"
+      - "hikaricp_connections_usage_seconds elevated — connections held longer due to slow network I/O"
+      - "hikaricp_connections_pending rising as pool exhaustion approaches"
+      - "pg_stat_activity_count on postgres-exporter remains stable and normal"
+      - "rate(http_server_requests_seconds_count{status=~'5..'}[1m]) may increase if connection pool times out"
+    logs:
+      - "HikariCP connection timeout warnings if pool is exhausted under sustained load"
+      - "Slow query warnings from Spring Data / JPA showing elevated execution times"
+      - "No Postgres-side errors — database logs show normal operation"
+    traces:
+      - "Spans from order-service → postgres showing 2+ second duration for DB calls"
+      - "Traces showing HTTP handler spans dominated by DB wait time, not application logic"
+    k8s_events:
+      - "NetworkChaos custom resource visible in the namespace (kubectl get networkchaos)"
+      - "No pod restarts or OOMKilled events — all pods remain Running"
+      - "Postgres pod healthy with passing readiness/liveness probes"
+
+  expected_tools:
+    - query_prometheus
+    - get_pod_logs
+    - describe_pod
+    - kubectl_get
+
+  remediation:
+    summary: >-
+      Delete the NetworkChaos resource injecting the delay on Postgres pods.
+      If this is a production incident rather than chaos testing, investigate
+      network policies, CNI plugin health, and node-to-node connectivity
+      for the nodes hosting Postgres and application pods.
+    patch:
+      kubectl: >-
+        kubectl delete networkchaos s06-postgres-network-delay
+        -n eventuate-tram-examples-customers-and-orders
+    verification: >-
+      HTTP p95 latency for order-service and customer-service drops below 500ms,
+      HikariCP connection usage times normalize, and 5xx error rate returns to 0.
+
+cleanup:
+  chaos_mesh:
+    resources:
+      - kind: NetworkChaos
+        name: s06-postgres-network-delay
+        namespace: eventuate-tram-examples-customers-and-orders
+
+  k8s:
+    delete: []
+
+  commands:
+    - "pkill -f 'k6 run' || true"
+    - "kubectl delete networkchaos s06-postgres-network-delay -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
+    - "sleep 15"
+
+  baseline_verification:
+    promql: >-
+      max(http_server_requests_seconds_max{
+        namespace="eventuate-tram-examples-customers-and-orders",
+        application="order-service",
+        uri=~"/orders.*"
+      })
+    operator: "<"
+    threshold: 1.0
+    timeout_seconds: 90

@@ -1,0 +1,190 @@
+id: S03-gateway-network-delay-order-service
+name: "NetworkChaos Delay on order-service Causing Gateway Latency and Circuit Breaker Activation"
+version: "1.0.0"
+category: network
+tier: 2
+target:
+  service: order-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: network
+tags:
+  - network
+  - latency
+  - chaos-mesh
+  - gateway
+  - reactive
+  - webflux
+  - netty
+  - circuit-breaker
+  - resilience4j
+
+description: >-
+  A Chaos Mesh NetworkChaos resource injects 3000ms ± 500ms of network delay on
+  all traffic to order-service pods. The api-gateway-service (a reactive Spring
+  Cloud Gateway running on Netty) proxies requests to order-service:8081. With
+  the injected delay far exceeding the gateway's configured circuit breaker
+  timeout (apigateway.timeout.millis=1000), HTTP requests to /orders hang for
+  several seconds before timing out. The Resilience4j circuit breaker
+  (orderServiceCB, failureRateThreshold=60%, slidingWindowSize=10) transitions
+  to OPEN state after enough failures, returning immediate 503 responses. CPU
+  stays low because the Netty event loop is non-blocking — threads are not
+  consumed waiting; instead, reactor schedulers queue the delayed responses.
+  Gateway-side p95/p99 latency spikes and throughput collapses.
+
+  NOTE ON GATEWAY MODEL: The api-gateway-service is fully REACTIVE
+  (spring-boot-starter-webflux, Netty transport). It does NOT use blocking
+  Tomcat threads. The original scenario expectation "busy threads reach max"
+  does not apply to this reactive gateway. Instead, we verify: (1) gateway
+  upstream latency rises dramatically, (2) circuit breaker opens, (3) CPU stays
+  low (confirming non-blocking I/O — the system waits, not works).
+
+inject:
+  type: chaos-mesh
+  timeout: 180s
+
+  chaos_mesh:
+    apiVersion: chaos-mesh.org/v1alpha1
+    kind: NetworkChaos
+    metadata:
+      name: s03-order-service-delay
+      namespace: eventuate-tram-examples-customers-and-orders
+    spec:
+      action: delay
+      mode: all
+      selector:
+        namespaces:
+          - eventuate-tram-examples-customers-and-orders
+        labelSelectors:
+          svc: order-service
+      delay:
+        latency: "3000ms"
+        correlation: "50"
+        jitter: "500ms"
+      duration: "3m"
+
+  commands:
+    - >-
+      GATEWAY_URL="http://127.0.0.1:8085"
+      k6 run --vus 10 --duration 3m k6/load-test.js &
+
+symptom_check:
+  description: >-
+    Verify that the api-gateway-service HTTP request duration to order-service
+    routes has spiked dramatically. The p95 latency for order-related routes
+    should exceed 2 seconds (the injected 3000ms delay minus jitter). We also
+    check that CPU stays low, confirming the reactive gateway is waiting (not
+    CPU-spinning) on delayed upstream responses.
+  promql: >-
+    max(spring_cloud_gateway_requests_seconds_max{
+      namespace="eventuate-tram-examples-customers-and-orders",
+      application="api-gateway-service",
+      routeId=~".*order.*"
+    })
+  operator: ">="
+  threshold: 1.0
+  unit: "seconds"
+  wait:
+    initial_delay_seconds: 30
+    interval_seconds: 10
+    timeout_seconds: 180
+    stabilization_duration: 15s
+
+agent_input:
+  prompt: >-
+    Alert: The api-gateway-service in namespace eventuate-tram-examples-customers-and-orders
+    is reporting extreme latency spikes on /orders routes. Response times have jumped from
+    under 200ms to over 3 seconds and many requests are timing out with 503 errors. The
+    service pods are Running and CPU usage appears normal.
+    Investigate the system to determine the root cause, identify the culprit component,
+    gather evidence from metrics, logs and traces, and propose the correct fix.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: order-service
+    component: network-delay
+    container: order-service
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: network_latency_injection
+
+  root_cause: >-
+    A Chaos Mesh NetworkChaos resource is injecting 3000ms ± 500ms of network
+    delay on all traffic to order-service pods. Because the api-gateway-service
+    has a circuit breaker timeout of 1000ms and the injected delay is 3x that
+    value, all proxied requests to /orders time out. The Resilience4j circuit
+    breaker (orderServiceCB) trips to OPEN state, returning 503 Service
+    Unavailable responses. The gateway is reactive (Netty/WebFlux), so CPU
+    stays low — threads are not blocked, but the upstream is unreachable
+    within the timeout window.
+
+  affected_services:
+    - order-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "http_server_requests_seconds p95/p99 for api-gateway-service /orders routes > 2s"
+      - "resilience4j_circuitbreaker_state{name='orderServiceCB'} transitions to OPEN (value 1)"
+      - "resilience4j_circuitbreaker_calls_seconds_count with kind='failed' or 'timeout' increasing"
+      - "rate(http_server_requests_seconds_count{status=~'5..', application='api-gateway-service'}[1m]) spike"
+      - "process_cpu_usage for api-gateway-service stays low (< 0.3) — confirming non-blocking"
+    logs:
+      - "io.github.resilience4j circuit breaker state transition log entries (DEBUG level enabled)"
+      - "Gateway timeout or connection timeout errors to order-service:8081"
+    traces:
+      - "Spans from api-gateway-service → order-service showing 3+ second duration"
+      - "Traces with error tags for timeout or 503 responses on /orders routes"
+    k8s_events:
+      - "NetworkChaos custom resource visible in the namespace (kubectl get networkchaos)"
+      - "No pod restarts or OOMKilled events (pods stay Running)"
+
+  expected_tools:
+    - query_prometheus
+    - get_pod_logs
+    - describe_pod
+    - kubectl_get
+
+  remediation:
+    summary: >-
+      Delete the NetworkChaos resource injecting the delay on order-service pods.
+      If this is a misconfiguration rather than chaos testing, verify network
+      policies and ensure no latency-injecting rules target production traffic.
+    patch:
+      kubectl: >-
+        kubectl delete networkchaos s03-order-service-delay
+        -n eventuate-tram-examples-customers-and-orders
+    verification: >-
+      Gateway HTTP p95 latency for /orders routes drops below 500ms, circuit
+      breaker transitions back to CLOSED, and 503 error rate returns to 0.
+
+cleanup:
+  chaos_mesh:
+    resources:
+      - kind: NetworkChaos
+        name: s03-order-service-delay
+        namespace: eventuate-tram-examples-customers-and-orders
+
+  k8s:
+    delete: []
+
+  commands:
+    - "pkill -f 'k6 run' || true"
+    - "kubectl delete networkchaos s03-order-service-delay -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
+    - "sleep 15"
+
+  baseline_verification:
+    promql: >-
+      histogram_quantile(0.95,
+        sum(rate(http_server_requests_seconds_bucket{
+          namespace="eventuate-tram-examples-customers-and-orders",
+          application="api-gateway-service",
+          uri=~".*/orders.*"
+        }[1m])) by (le)
+      )
+    operator: "<"
+    threshold: 1.0
+    timeout_seconds: 90

@@ -1,0 +1,188 @@
+id: S07-mongodb-network-delay
+name: "NetworkChaos Delay on MongoDB Path Causing order-history-service Consumer Lag"
+version: "1.0.0"
+category: network
+tier: 2
+target:
+  service: mongodb
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: network-delay
+tags:
+  - network
+  - latency
+  - chaos-mesh
+  - mongodb
+  - order-history-service
+  - kafka
+  - consumer-lag
+
+description: >-
+  A Chaos Mesh NetworkChaos resource injects 2500ms ± 400ms of network delay on
+  all pods with label role=mongodb in the application namespace. The
+  order-history-service, which consumes domain events from Kafka and persists
+  order/customer views to MongoDB, is severely impacted. Each MongoDB write
+  takes ~2.5 seconds longer than normal, causing the Kafka consumer to fall
+  behind — consumer lag rises as events accumulate faster than they can be
+  processed. HTTP routes served by order-history-service (e.g. order history
+  lookups) also experience elevated latency. Meanwhile, order-service and
+  customer-service continue operating normally since they use PostgreSQL, not
+  MongoDB. The divergence in service health is the key diagnostic signal.
+
+inject:
+  type: chaos-mesh
+  timeout: 180s
+
+  chaos_mesh:
+    apiVersion: chaos-mesh.org/v1alpha1
+    kind: NetworkChaos
+    metadata:
+      name: s07-mongodb-network-delay
+      namespace: eventuate-tram-examples-customers-and-orders
+    spec:
+      action: delay
+      mode: all
+      selector:
+        namespaces:
+          - eventuate-tram-examples-customers-and-orders
+        labelSelectors:
+          role: mongodb
+      delay:
+        latency: "2500ms"
+        correlation: "50"
+        jitter: "400ms"
+      duration: "3m"
+
+  commands:
+    - >-
+      GATEWAY_URL="http://127.0.0.1:8085"
+      k6 run --vus 10 --duration 3m k6/load-test.js &
+
+symptom_check:
+  description: >-
+    Verify that order-history-service is experiencing degraded performance due
+    to the MongoDB network delay. We check for 5xx errors or elevated latency
+    on order-history-service routes, indicating that MongoDB write operations
+    are timing out or taking excessively long, causing the Kafka consumer to
+    fall behind and HTTP requests to fail or slow down.
+  promql: >-
+    sum(rate(http_server_requests_seconds_count{
+      namespace="eventuate-tram-examples-customers-and-orders",
+      application="order-history-service",
+      status=~"5.."
+    }[1m])) 
+  operator: ">"
+  threshold: 0.0
+  unit: "errors/second"
+  wait:
+    initial_delay_seconds: 30
+    interval_seconds: 10
+    timeout_seconds: 180
+    stabilization_duration: 15s
+
+agent_input:
+  prompt: >-
+    Alert: The order-history-service in namespace
+    eventuate-tram-examples-customers-and-orders appears to be falling behind
+    on Kafka event processing. Consumer lag is rising and HTTP requests to
+    order history routes are experiencing elevated latency or 5xx errors.
+    Meanwhile, order-service and customer-service appear healthy and are
+    processing requests normally. The MongoDB pods are showing as Running.
+    Investigate the system to determine the root cause, identify the culprit
+    component, gather evidence from metrics, logs and traces, and propose the
+    correct fix.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: mongodb
+    component: network-delay
+    container: mongodb
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: network_latency_injection
+
+  root_cause: >-
+    A Chaos Mesh NetworkChaos resource is injecting 2500ms ± 400ms of network
+    delay on all pods with label role=mongodb. The order-history-service
+    consumes domain events from Kafka and writes order/customer views to
+    MongoDB. Each MongoDB write now takes ~2.5 seconds longer, causing the
+    Kafka consumer to process events much slower than they arrive. Consumer
+    lag rises as a result. HTTP requests served by order-history-service that
+    require MongoDB reads also experience elevated latency. The upstream
+    producers (order-service, customer-service) are unaffected because they
+    use PostgreSQL, not MongoDB. MongoDB itself is healthy internally — the
+    delay is purely on the network path.
+
+  affected_services:
+    - order-history-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "http_server_requests_seconds p95 for order-history-service elevated > 2s"
+      - "rate(http_server_requests_seconds_count{status=~'5..', application='order-history-service'}[1m]) "
+      - "Kafka consumer lag for order-history consumer group rising over time"
+      - "order-service and customer-service HTTP latency and error rate remain normal"
+      - "MongoDB pod CPU and memory usage normal — database engine is healthy"
+    logs:
+      - "MongoDB connection timeout or slow operation warnings in order-history-service logs"
+      - "Kafka consumer poll timeout or rebalance warnings due to slow processing"
+      - "No errors in MongoDB container logs — database is operating normally internally"
+    traces:
+      - "Spans from order-history-service → mongodb showing 2.5+ second duration"
+      - "Kafka consumer spans showing extended processing time per event batch"
+    k8s_events:
+      - "NetworkChaos custom resource visible in the namespace (kubectl get networkchaos)"
+      - "No pod restarts on MongoDB — pods remain Running and healthy"
+      - "Possible order-history-service restarts if consumer exceeds session timeout"
+
+  expected_tools:
+    - query_prometheus
+    - get_pod_logs
+    - describe_pod
+    - kubectl_get
+
+  remediation:
+    summary: >-
+      Delete the NetworkChaos resource injecting the delay on MongoDB pods.
+      If this is a production incident, investigate network connectivity
+      between order-history-service pods and MongoDB pods, check for CNI
+      issues, network policy misconfiguration, or cross-AZ latency problems.
+    patch:
+      kubectl: >-
+        kubectl delete networkchaos s07-mongodb-network-delay
+        -n eventuate-tram-examples-customers-and-orders
+    verification: >-
+      order-history-service HTTP latency drops below 500ms, Kafka consumer
+      lag decreases and stabilizes, 5xx error rate returns to 0, and event
+      processing throughput recovers to match producer rate.
+
+cleanup:
+  chaos_mesh:
+    resources:
+      - kind: NetworkChaos
+        name: s07-mongodb-network-delay
+        namespace: eventuate-tram-examples-customers-and-orders
+
+  k8s:
+    delete: []
+
+  commands:
+    - "pkill -f 'k6 run' || true"
+    - "kubectl delete networkchaos s07-mongodb-network-delay -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
+    - "sleep 15"
+
+  baseline_verification:
+    promql: >-
+      histogram_quantile(0.95,
+        sum(rate(http_server_requests_seconds_bucket{
+          namespace="eventuate-tram-examples-customers-and-orders",
+          application="order-history-service"
+        }[1m])) by (le)
+      )
+    operator: "<"
+    threshold: 1.0
+    timeout_seconds: 90
