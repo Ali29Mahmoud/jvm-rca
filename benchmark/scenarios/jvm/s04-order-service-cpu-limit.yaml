@@ -1,14 +1,3 @@
-# ==============================================================================
-# Scenario S04: Lower order-service CPU Limit Under Load (CPU Throttling)
-# ==============================================================================
-# This scenario simulates an operational misconfiguration where order-service's
-# container CPU limit is throttled down to an extremely constrained value
-# (50m - 100m) while synthetic order creation load is running. The CFS (Completely
-# Fair Scheduler) bandwidth controller heavily throttles the JVM process, causing
-# severe latency degradation, thread pool exhaustion, HTTP response timeouts,
-# and potential probe failures.
-# ==============================================================================
-
 id: S04-order-service-cpu-throttling
 name: "Lower order-service CPU Limit Under Load"
 version: "1.0.0"
@@ -35,18 +24,13 @@ description: >-
   (>80% throttled periods), resulting in order creation latency degrading by an order
   of magnitude and gateway timeout errors.
 
-# ------------------------------------------------------------------------------
-# Fault Injection Definition
-# ------------------------------------------------------------------------------
 inject:
   type: k8s-patch
   timeout: 180s
   commands:
-    # 1. Start k6 load generator to create steady HTTP traffic to /orders
     - >-
       GATEWAY_URL="http://127.0.0.1:8085"
       k6 run --vus 10 --duration 3m k6/load-test.js &
-    # 2. Patch order-service container CPU requests and limits down to throttled levels
     - >-
       kubectl patch deployment order-service
       -n eventuate-tram-examples-customers-and-orders
@@ -56,9 +40,6 @@ inject:
         {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/cpu", "value": "100m"}
       ]'
 
-# ------------------------------------------------------------------------------
-# Symptom Verification with PromQL
-# ------------------------------------------------------------------------------
 symptom_check:
   description: >-
     Verify that order-service container experiences significant CPU throttling
@@ -78,9 +59,6 @@ symptom_check:
     timeout_seconds: 180
     stabilization_duration: 10s
 
-# ------------------------------------------------------------------------------
-# Agent Input & Constraints
-# ------------------------------------------------------------------------------
 agent_input:
   prompt: >-
     Alert: order-service in namespace eventuate-tram-examples-customers-and-orders is suffering
@@ -93,9 +71,6 @@ agent_input:
     time_limit_seconds: 300
     token_budget: 100000
 
-# ------------------------------------------------------------------------------
-# Authoritative Ground Truth
-# ------------------------------------------------------------------------------
 ground_truth:
   culprit:
     service: order-service
@@ -149,9 +124,6 @@ ground_truth:
       CFS throttled periods percentage drops back to 0-5%, HTTP p95 latency falls below
       baseline threshold (<500ms), and readiness probes succeed without delay.
 
-# ------------------------------------------------------------------------------
-# Cleanup & Restoration
-# ------------------------------------------------------------------------------
 cleanup:
   chaos_mesh:
     resources: []
@@ -160,9 +132,7 @@ cleanup:
     delete: []
 
   commands:
-    # 1. Stop background k6 load generation
     - "pkill -f 'k6 run' || true"
-    # 2. Restore normal CPU limits and requests
     - >-
       kubectl patch deployment order-service
       -n eventuate-tram-examples-customers-and-orders
@@ -171,7 +141,6 @@ cleanup:
         {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/cpu", "value": "300m"},
         {"op": "replace", "path": "/spec/template/spec/containers/0/resources/limits/cpu", "value": "1500m"}
       ]'
-    # 3. Wait for rollout completion
     - "kubectl rollout status deployment/order-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
 
   baseline_verification:

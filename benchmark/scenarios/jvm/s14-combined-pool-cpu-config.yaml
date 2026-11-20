@@ -1,0 +1,75 @@
+id: S14-combined-pool-cpu-config
+name: "Combine S05 with CPU throttling on order-history-service and an unrelated config rollout"
+version: "1.0.0"
+category: jvm
+tier: 2
+target:
+  service: order-service
+  component: Deployment
+  namespace: eventuate-tram-examples-customers-and-orders
+
+description: >-
+  1. Patch `order-service` to set a low Hikari pool size (e.g., `SPRING_DATASOURCE_MAX_POOL_SIZE=2`).
+  2. Patch `order-history-service` to add a CPU limit of 200m, causing throttling.
+  3. Apply a new ConfigMap `unrelated-config` with a dummy key/value to trigger a config rollout.
+  Verify that error counters rise and latency increases, then rollback each change.
+
+inject:
+  type: exec
+  commands:
+    - >-
+      kubectl patch deployment order-service -n eventuate-tram-examples-customers-and-orders \
+        --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"SPRING_DATASOURCE_MAX_POOL_SIZE","value":"2"}}]'
+    - >-
+      kubectl patch deployment order-history-service -n eventuate-tram-examples-customers-and-orders \
+        --type=json -p='[{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/cpu","value":"200m"}]'
+    - >-
+      cat <<EOF | kubectl apply -f -
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: unrelated-config
+        namespace: eventuate-tram-examples-customers-and-orders
+      data:
+        dummyKey: dummyValue
+      EOF
+    - >-
+      kubectl rollout status deployment order-service -n eventuate-tram-examples-customers-and-orders --timeout=60s && \
+      kubectl rollout status deployment order-history-service -n eventuate-tram-examples-customers-and-orders --timeout=60s
+
+symptom_check:
+  description: >-
+    Increased error logs from order-service (pool exhaustion) and order-history-service (CPU throttling).
+    Latency metrics rise and `logback_events_total{level="error"}` for both services increase.
+  promql: >-
+    (logback_events_total{application="order-service",level="error"} > 0) or \
+    (logback_events_total{application="order-history-service",level="error"} > 0)
+  wait:
+    initial_delay_seconds: 15
+    interval_seconds: 5
+    timeout_seconds: 180
+    stabilization_duration: 10s
+
+verification:
+  steps:
+    - >-
+      kubectl rollout undo deployment order-service -n eventuate-tram-examples-customers-and-orders
+    - >-
+      kubectl rollout undo deployment order-history-service -n eventuate-tram-examples-customers-and-orders
+    - >-
+      kubectl delete configmap unrelated-config -n eventuate-tram-examples-customers-and-orders --ignore-not-found
+    - >-
+      echo "Verify error metrics baseline for both services"
+
+ground_truth:
+  culprit:
+    - service: order-service
+      component: Deployment
+    - service: order-history-service
+      component: Deployment
+  category: combined_pool_cpu_config
+  expected_evidence:
+    - "order-service pod logs show Hikari pool exhaustion errors"
+    - "order-history-service pod logs show CPU throttling warnings"
+    - "Latency metrics (e.g., http_server_requests_seconds_sum) increase"
+    - "Rollback restores normal metrics"
