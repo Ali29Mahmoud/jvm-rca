@@ -1,0 +1,120 @@
+id: S09-kafka-poison-message
+name: "Malformed / Poison Record Published to Kafka Order Topic"
+version: "1.0.0"
+category: kafka
+tier: 2
+target:
+  service: customer-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: OrderEventConsumer
+tags:
+  - kafka
+  - poison-message
+  - consumer-lag
+  - crash-loop
+  - eventuate-tram
+  - deserialization
+
+description: >-
+  A malformed OrderCreatedEvent with a missing customerId is published to the
+  Kafka topic 'io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order'
+  via kafka-console-producer. When customer-service consumes this message,
+  OrderEventConsumer throws a NullPointerException when attempting to unbox
+  customerId. SwimlaneDispatcher logs 'Exception handling message - terminating'.
+  Because uncommitted offsets remain stuck at the poison record, the consumer repeatedly
+  re-reads the record and terminates on restart. Orders remain in PENDING state indefinitely.
+
+inject:
+  type: exec
+  timeout: 180s
+  commands:
+    - >-
+      kubectl exec -n eventuate-tram-examples-customers-and-orders deploy/kafka -- sh -c "
+      printf 'PARTITION_ID:1,event-aggregate-type:io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order,event-aggregate-id:99999,event-type:io.eventuate.examples.tram.ordersandcustomers.orders.domain.OrderCreatedEvent,DESTINATION:io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order\t99999\t{\"payload\":\"{\\\"orderDetails\\\":{\\\"orderTotal\\\":{\\\"amount\\\":100}}}\",\"headers\":{\"PARTITION_ID\":\"1\",\"event-aggregate-type\":\"io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order\",\"event-aggregate-id\":\"99999\",\"event-type\":\"io.eventuate.examples.tram.ordersandcustomers.orders.domain.OrderCreatedEvent\",\"DESTINATION\":\"io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order\"}}\n' | /usr/local/kafka_2.13-3.2.3/bin/kafka-console-producer.sh --bootstrap-server kafka:29092 --topic io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order --property parse.headers=true --property parse.key=true"
+
+symptom_check:
+  description: >-
+    Verify that customer-service logged errors from the poison message (SwimlaneDispatcher
+    termination or deserialization failure). The logback error counter increases from 0
+    after the malformed record is consumed. Note: there is no Kafka exporter in this
+    cluster, so kafka_consumergroup_lag is not available in Prometheus.
+  promql: >-
+    logback_events_total{
+      application="customer-service",
+      level="error",
+      namespace="eventuate-tram-examples-customers-and-orders"
+    }
+  operator: ">="
+  threshold: 1.0
+  unit: "error_log_events"
+  wait:
+    initial_delay_seconds: 15
+    interval_seconds: 5
+    timeout_seconds: 120
+    stabilization_duration: 5s
+
+agent_input:
+  prompt: >-
+    Alert: Orders placed through api-gateway-service remain indefinitely stuck in PENDING status.
+    Customer service logs show repeated NullPointerException errors and SwimlaneDispatcher
+    terminations. The OrderEventConsumer group on topic
+    io.eventuate.examples.tram.ordersandcustomers.orders.domain.Order is accumulating lag.
+    Investigate the Kafka topics, consumer group offsets, and application logs to determine
+    the root cause, identify the culprit, gather supporting evidence, and remediate the issue.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: customer-service
+    component: OrderEventConsumer
+    container: customer-service
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: kafka_poison_message
+
+  root_cause: >-
+    A malformed record lacking a customerId was published to the Order domain topic.
+    When customer-service's OrderEventConsumer processes the record,
+    handleOrderCreatedEvent attempts to call customerId().longValue(), triggering a
+    java.lang.NullPointerException. SwimlaneDispatcher terminates the message consumer
+    thread without committing the offset, causing the consumer to re-fetch the poison
+    record in an infinite loop upon restart.
+
+  affected_services:
+    - customer-service
+    - order-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "kafka_consumergroup_lag for OrderEventConsumer > 0 on partition containing the poison record"
+    logs:
+      - "java.lang.NullPointerException: Cannot invoke \"java.lang.Long.longValue()\" because the return value of \"...OrderDetails.customerId()\" is null"
+      - "ERROR i.e.m.k.consumer.SwimlaneDispatcher - Exception handling message - terminating"
+    kafka:
+      - "kafka-consumer-groups shows lag on OrderEventConsumer or non-advancing current-offset"
+      - "kafka-console-consumer reveals record with payload missing customerId"
+    k8s_events:
+      - "Orders remain in PENDING state indefinitely"
+
+  expected_tools:
+    - get_pod_logs
+    - describe_pod
+    - run_shell_command
+    - query_prometheus
+
+  remediation:
+    summary: >-
+      Skip the poison record offset using kafka-consumer-groups.sh --reset-offsets
+      (--to-offset or --to-latest) for group OrderEventConsumer while the customer-service
+      consumer is stopped (replicas=0), then restore customer-service replicas to 1.
+    verification: "Customer service resumes consumption without NPE, consumer lag drops to 0, and orders transition to APPROVED."
+
+cleanup:
+  chaos_mesh:
+    resources: []
+  commands:
+    - "./scripts/reset-consumer-group.sh customer-service OrderEventConsumer --execute"

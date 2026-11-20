@@ -1,0 +1,117 @@
+id: S12-postgres-customer-row-lock
+name: "PostgreSQL Customer Row Lock Contention Halts Order Credit Reservation"
+version: "1.0.0"
+category: postgres
+tier: 2
+target:
+  service: postgres
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: database-row-lock
+tags:
+  - postgres
+  - row-lock
+  - lock-contention
+  - credit-reservation
+  - pg_locks
+  - saga-stall
+
+description: >-
+  A harness script executes 'BEGIN; SELECT * FROM eventuate.customer WHERE id=N FOR UPDATE;
+  SELECT pg_sleep(hold_time); COMMIT;' in PostgreSQL. While the lock is held,
+  order creation sagas for this customer block on credit reservation. Orders stay
+  in PENDING status. Checking pg_locks shows blocked sessions waiting for the row lock.
+  Once the transaction commits and releases the lock, the waiting transactions complete
+  and the saga finishes successfully.
+
+inject:
+  type: exec
+  timeout: 180s
+  commands:
+    - "./scripts/lock-customer-row.py --seconds 180 &"
+
+symptom_check:
+  description: >-
+    Verify that PostgreSQL has sessions in 'idle in transaction' state (the lock holder)
+    or that the number of active sessions spikes (blocked sessions waiting for the lock).
+    The lock-customer-row.py script holds a BEGIN + SELECT FOR UPDATE + pg_sleep, which
+    shows as 'idle in transaction' in pg_stat_activity during the sleep.
+  promql: >-
+    pg_stat_activity_count{
+      datname="eventuate",
+      state="idle in transaction",
+      namespace="eventuate-tram-examples-customers-and-orders"
+    }
+  operator: ">="
+  threshold: 1.0
+  unit: "sessions"
+  wait:
+    initial_delay_seconds: 5
+    interval_seconds: 5
+    timeout_seconds: 90
+    stabilization_duration: 5s
+
+agent_input:
+  prompt: >-
+    Alert: Orders placed for customer accounts are stuck in PENDING status and failing to complete.
+    Customer-service transaction duration has spiked and threads are blocked on database calls.
+    Investigate PostgreSQL locks, active sessions, and application threads to determine the root cause,
+    identify the culprit lock/session, gather supporting evidence from pg_locks and logs, and propose remediation.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: postgres
+    component: row-level-lock
+    container: postgres
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: database_lock_contention
+
+  root_cause: >-
+    An external database session acquired an exclusive row lock (FOR UPDATE) on the
+    customer record in eventuate.customer and held it with an open transaction.
+    When customer-service attempted to reserve credit for orders under this customer,
+    its SQL UPDATE / SELECT FOR UPDATE statement blocked waiting for the row lock to be released,
+    causing orders to remain PENDING.
+
+  affected_services:
+    - customer-service
+    - order-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "Database query duration or waiting transaction counts elevated"
+    database:
+      - "pg_locks shows a session with granted=false waiting on transactionid / tuple lock"
+      - "pg_stat_activity shows an active query waiting or in 'idle in transaction' holding locks"
+    logs:
+      - "Customer-service thread wait / slow query logs on credit reservation"
+    k8s_events:
+      - "Orders stay PENDING until the holding session releases the lock"
+
+  expected_tools:
+    - run_shell_command
+    - query_prometheus
+    - get_pod_logs
+
+  remediation:
+    summary: >-
+      Identify the holding PID via pg_locks and pg_stat_activity, and terminate or commit
+      the blocking backend using pg_cancel_backend(pid) or pg_terminate_backend(pid).
+    verification: "Blocked sessions in pg_locks clear, customer-service acquires the row lock, and orders complete to APPROVED."
+
+cleanup:
+  chaos_mesh:
+    resources: []
+  commands:
+    - "pkill -f lock-customer-row.py || true"
+    - >-
+      kubectl exec -n eventuate-tram-examples-customers-and-orders deploy/postgres --
+      psql -U eventuate -d eventuate -c "
+      SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+      WHERE (query LIKE '%FOR UPDATE%' OR query LIKE '%pg_sleep%') AND pid <> pg_backend_pid();
+      "

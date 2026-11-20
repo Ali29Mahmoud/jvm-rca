@@ -1,0 +1,64 @@
+id: S15-kill-cdc-service
+name: "Kill or block the CDC service"
+version: "1.0.0"
+category: cdc
+tier: 2
+target:
+  service: cdc-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: Deployment
+
+description: >-
+  Scale the `cdc-service` deployment to zero (or apply a NetworkPolicy that
+  blocks traffic) to simulate a failure. Verify that error counters rise and
+  latency increases for dependent services. Then restore the service and verify
+  that the backlog of outbox rows is processed and Kafka offsets resume.
+
+inject:
+  type: exec
+  commands:
+    - >-
+      kubectl scale deployment cdc-service -n eventuate-tram-examples-customers-and-orders --replicas=0
+    - >-
+      sleep 30
+    - >-
+      kubectl get pods -n eventuate-tram-examples-customers-and-orders -l svc=cdc-service
+
+symptom_check:
+  description: >-
+    After CDC is stopped, the following symptoms should be observable:
+      * `logback_events_total{application="order-service",level="error"}` increases.
+      * Orders remain in PENDING state.
+      * Kafka consumer group offsets for the outbox topic stop advancing.
+      * The `outbox` table in the database shows growing rows.
+  promql: >-
+    (logback_events_total{application="order-service",level="error"} > 0) and \
+    sum(increase(kafka_topic_partition_current_offset{topic="io.eventuate.tram.outbox.events"}[5m])) == 0
+  wait:
+    initial_delay_seconds: 20
+    interval_seconds: 10
+    timeout_seconds: 180
+    stabilization_duration: 15s
+
+verification:
+  steps:
+    - >-
+      kubectl scale deployment cdc-service -n eventuate-tram-examples-customers-and-orders --replicas=1
+    - >-
+      kubectl rollout status deployment cdc-service -n eventuate-tram-examples-customers-and-orders --timeout=60s
+    - >-
+      echo "Check kafka offsets after CDC restart"
+    - >-
+      echo "Confirm outbox rows have been processed"
+
+ground_truth:
+  culprit:
+    service: cdc-service
+    component: Deployment
+    namespace: eventuate-tram-examples-customers-and-orders
+  category: kill_cdc_service
+  expected_evidence:
+    - "Orders remain PENDING"
+    - "Kafka end offsets stop advancing"
+    - "Outbox rows increase in the database"
+    - "Restarting CDC drains the backlog and offsets resume"

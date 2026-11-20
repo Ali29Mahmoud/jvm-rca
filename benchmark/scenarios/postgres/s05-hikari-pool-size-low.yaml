@@ -1,0 +1,186 @@
+id: S05-hikari-pool-size-low
+name: "Set Hikari Maximum Pool Size Very Low Through Configuration"
+version: "1.0.0"
+category: postgres
+tier: 2
+target:
+  service: order-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: connection-pool
+tags:
+  - postgres
+  - hikari
+  - connection-pool
+  - pool-exhaustion
+  - configuration
+  - timeout
+  - cascading
+
+description: >-
+  The HikariCP maximum pool size for order-service and customer-service is
+  reduced to 2 via the SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE environment
+  variable (Spring Boot auto-configuration binds this to
+  spring.datasource.hikari.maximum-pool-size). Under even modest traffic (k6
+  with 10 VUs), the 2 connections are immediately monopolized by active JDBC
+  transactions. The HikariCP pool reports pending connections above 0 and active
+  connections equal to maximumPoolSize. Threads waiting for a connection block
+  until the connectionTimeout (default 30 seconds) expires, then throw
+  java.sql.SQLTransientConnectionException: "Connection is not available,
+  request timed out after 30000ms". The PostgreSQL database stays largely idle
+  (only 2 connections per service are established), making this a classic
+  application-side pool starvation rather than a database issue.
+
+inject:
+  type: k8s-patch
+  timeout: 180s
+  commands:
+    - >-
+      kubectl set env deployment/order-service
+      -n eventuate-tram-examples-customers-and-orders
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE=1
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT=30000
+    - >-
+      kubectl set env deployment/customer-service
+      -n eventuate-tram-examples-customers-and-orders
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE=1
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT=30000
+    - "kubectl rollout status deployment/order-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    - >-
+      GATEWAY_URL="http://127.0.0.1:8085"
+      k6 run --vus 10 --duration 3m k6/load-test.js &
+
+symptom_check:
+  description: >-
+    Verify that HikariCP pending connections (threads waiting for a connection)
+    is above 0 and active connections equals the maximum pool size (2). The
+    hikaricp_connections_pending metric tracks threads blocked waiting for a
+    connection from the pool.
+  promql: >-
+    hikaricp_connections_pending{namespace="eventuate-tram-examples-customers-and-orders", application="order-service"}
+  operator: ">="
+  threshold: 1.0
+  unit: "connections"
+  wait:
+    initial_delay_seconds: 30
+    interval_seconds: 5
+    timeout_seconds: 180
+    stabilization_duration: 15s
+
+agent_input:
+  prompt: >-
+    Alert: order-service and customer-service in namespace
+    eventuate-tram-examples-customers-and-orders are experiencing intermittent
+    request timeouts and HTTP 500 errors. Response latency has degraded
+    significantly. The pods are Running and not restarting, and the PostgreSQL
+    database appears healthy with low CPU and I/O.
+    Investigate the system to determine the root cause, identify the culprit,
+    provide supporting evidence from metrics, logs and traces, and propose the
+    correct remediation.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: order-service
+    component: hikari-connection-pool
+    container: order-service
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: connection_pool_exhaustion
+
+  root_cause: >-
+    The HikariCP maximum pool size on order-service and customer-service was
+    configured to 2 connections via the SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+    environment variable. Under concurrent request load, all 2 pool connections
+    are actively in use, causing all subsequent JDBC operations to block waiting
+    for a connection. After the 30-second connectionTimeout expires, HikariCP
+    throws SQLTransientConnectionException. The database itself is healthy and
+    underutilized — the bottleneck is entirely at the application connection
+    pool layer.
+
+  affected_services:
+    - order-service
+    - customer-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "hikaricp_connections_pending{application='order-service'} > 0 (threads waiting for connection)"
+      - "hikaricp_connections_active{application='order-service'} == hikaricp_connections_max{application='order-service'} (all connections in use)"
+      - "hikaricp_connections_max{application='order-service'} == 2 (abnormally low maximum)"
+      - "hikaricp_connections_timeout_total{application='order-service'} increasing (connection acquisition timeouts)"
+      - "pg_stat_activity active connections low (database is mostly idle)"
+      - "http_server_requests_seconds_count{status='500'} increasing for order-service and customer-service"
+    logs:
+      - "java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms"
+      - "HikariPool-1 - Pool stats (total=2, active=2, idle=0, waiting=N)"
+    traces:
+      - "POST /orders and POST /customers spans showing 30+ second duration (waiting for pool connection)"
+      - "Spans with error tags for SQLTransientConnectionException"
+    k8s_events:
+      - "No pod restarts or OOMKilled events (services stay Running but fail requests)"
+      - "Deployment environment variables showing SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2"
+
+  expected_tools:
+    - query_prometheus
+    - get_pod_logs
+    - describe_pod
+
+  remediation:
+    summary: >-
+      Increase the HikariCP maximum pool size to a reasonable value (e.g., 10,
+      the Spring Boot default) by removing or correcting the
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE environment variable.
+    patch:
+      kubectl: >-
+        kubectl set env deployment/order-service
+        -n eventuate-tram-examples-customers-and-orders
+        SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE-
+        SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE-
+        SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT-
+        &&
+        kubectl set env deployment/customer-service
+        -n eventuate-tram-examples-customers-and-orders
+        SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE-
+        SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE-
+        SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT-
+    verification: >-
+      hikaricp_connections_pending drops to 0, hikaricp_connections_max returns
+      to the default (10), connection timeout errors cease in the logs, and
+      HTTP 500 rate returns to 0.
+
+cleanup:
+  chaos_mesh:
+    resources: []
+
+  k8s:
+    delete: []
+
+  commands:
+    - "pkill -f 'k6 run' || true"
+    - >-
+      kubectl set env deployment/order-service
+      -n eventuate-tram-examples-customers-and-orders
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE-
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE-
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT-
+    - >-
+      kubectl set env deployment/customer-service
+      -n eventuate-tram-examples-customers-and-orders
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE-
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE-
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT-
+    - "kubectl rollout status deployment/order-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+
+  baseline_verification:
+    promql: >-
+      hikaricp_connections_pending{namespace="eventuate-tram-examples-customers-and-orders", application="order-service"}
+    operator: "=="
+    threshold: 0.0
+    timeout_seconds: 120

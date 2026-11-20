@@ -1,0 +1,107 @@
+id: S10-single-customer-partition-skew
+name: "Single Customer Load Spike Causing Kafka Partition Skew and Lag"
+version: "1.0.0"
+category: kafka
+tier: 2
+target:
+  service: customer-service
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: kafka-partitioning
+tags:
+  - kafka
+  - partition-skew
+  - single-customer
+  - consumer-lag
+  - hotspot
+  - load-variant
+
+description: >-
+  A dedicated load variant (k6/load-single-customer.js) sends all order traffic
+  targeted at a single customer. Using Kafka command-line tools to inspect topic
+  keys and partitions, operators observe that one partition's log-end offset and
+  consumer lag grow disproportionately compared to other partitions, exposing
+  hotspotting and serialization bottlenecks.
+
+inject:
+  type: exec
+  timeout: 180s
+  commands:
+    - "k6 run k6/load-single-customer.js"
+
+symptom_check:
+  description: >-
+    Verify that high order-creation throughput occurred (the partition skew itself
+    must be verified via kafka-consumer-groups.sh since there is no Kafka exporter
+    in this cluster). This checks that order-service received a burst of POST /orders.
+  promql: >-
+    increase(http_server_requests_seconds_count{
+      application="order-service",
+      method="POST",
+      namespace="eventuate-tram-examples-customers-and-orders"
+    }[3m])
+  operator: ">="
+  threshold: 10.0
+  unit: "requests"
+  wait:
+    initial_delay_seconds: 30
+    interval_seconds: 10
+    timeout_seconds: 180
+    stabilization_duration: 5s
+
+agent_input:
+  prompt: >-
+    Alert: Uneven consumer lag observed across Kafka topic partitions for OrderEventConsumer.
+    One partition is heavily backlogged while another remains near zero lag.
+    System throughput is degrading due to single-thread bottlenecking.
+    Inspect Kafka topic partitions, consumer group offsets, and order keys to diagnose
+    the root cause, identify the culprit traffic pattern, and propose mitigation.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: traffic-generator
+    component: single-customer-hotspot
+    container: k6
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: kafka_partition_skew
+
+  root_cause: >-
+    A burst of order creation traffic sent every order for a single customer.
+    Because messages are partitioned by aggregate/customer routing keys, all traffic
+    mapped to one Kafka partition. The single consumer thread handling that partition
+    became overwhelmed, leading to partition lag skew and database row contention.
+
+  affected_services:
+    - customer-service
+    - order-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "kafka_consumergroup_lag highly skewed across partitions (e.g. partition 1 >> partition 0)"
+    kafka:
+      - "kafka-consumer-groups.sh shows high lag on one partition and 0 lag on others"
+      - "kafka-console-consumer shows all recent records sharing the same customer aggregate key"
+    logs:
+      - "Elevated database transaction duration or lock wait times on customer row"
+
+  expected_tools:
+    - query_prometheus
+    - run_shell_command
+    - get_pod_logs
+
+  remediation:
+    summary: >-
+      Throttle or distribute requests across multiple customers, scale consumer group
+      partitions, or employ client-side rate limiting / request batching.
+    verification: "Kafka consumer lag across all partitions balances back to 0."
+
+cleanup:
+  chaos_mesh:
+    resources: []
+  commands:
+    - "pkill -f load-single-customer.js || true"

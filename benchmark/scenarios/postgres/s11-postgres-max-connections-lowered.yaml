@@ -1,0 +1,187 @@
+id: S11-postgres-max-connections-lowered
+name: "Lower Postgres max_connections and Restart Postgres"
+version: "1.0.0"
+category: postgres
+tier: 2
+target:
+  service: postgres
+  namespace: eventuate-tram-examples-customers-and-orders
+  component: database-configuration
+tags:
+  - postgres
+  - max-connections
+  - connection-refused
+  - database
+  - infrastructure
+  - cascading
+  - configuration
+
+description: >-
+  The PostgreSQL deployment is patched to start with max_connections=5 by
+  adding the flag to the container args. The postgres deployment is then
+  restarted (via rollout restart). When the database comes back online with
+  max_connections=5, the three Spring Boot services (order-service,
+  customer-service, cdc-service) each attempt to establish their HikariCP
+  connection pools. With default pool sizes of 10 connections per service,
+  the combined demand of ~30 connections far exceeds the 5-connection limit.
+  PostgreSQL rejects connections with "FATAL: too many clients already" or
+  "FATAL: sorry, too many clients already". Services log connection errors,
+  health checks fail, and the saga workflow halts entirely. The database
+  server itself remains running but is effectively unreachable for new
+  connections beyond the first 5.
+
+inject:
+  type: k8s-patch
+  timeout: 240s
+  commands:
+    - >-
+      kubectl patch deployment postgres
+      -n eventuate-tram-examples-customers-and-orders
+      --type='json'
+      -p='[
+        {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "-c"},
+        {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "max_connections=5"}
+      ]'
+    - "kubectl rollout status deployment/postgres -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    - "kubectl rollout restart deployment/order-service -n eventuate-tram-examples-customers-and-orders"
+    - "kubectl rollout restart deployment/customer-service -n eventuate-tram-examples-customers-and-orders"
+    - "kubectl rollout restart deployment/cdc-service -n eventuate-tram-examples-customers-and-orders"
+    - "sleep 30"
+
+symptom_check:
+  description: >-
+    Verify that application services are experiencing connection failures.
+    Check that the kube_pod_container_status_restarts_total increases for
+    order-service or customer-service (they will crash-loop due to failed
+    database connections at startup), or that HikariCP timeout metrics spike.
+    Alternatively, check that PostgreSQL reports near-maximum connections used.
+  promql: >-
+    increase(kube_pod_container_status_restarts_total{
+      namespace="eventuate-tram-examples-customers-and-orders",
+      container=~"order-service|customer-service|cdc-service"
+    }[3m])
+  operator: ">="
+  threshold: 1.0
+  unit: "restarts"
+  wait:
+    initial_delay_seconds: 40
+    interval_seconds: 10
+    timeout_seconds: 240
+    stabilization_duration: 15s
+
+agent_input:
+  prompt: >-
+    Alert: Multiple services in namespace eventuate-tram-examples-customers-and-orders
+    (order-service, customer-service, cdc-service) are failing to start or are
+    repeatedly restarting. Application logs show database connection errors.
+    The PostgreSQL pod itself appears Running. HTTP requests through the
+    api-gateway-service return 502/503 errors.
+    Investigate the system to determine the root cause, identify the culprit,
+    gather supporting evidence, and propose the correct fix.
+  budgets:
+    max_steps: 30
+    time_limit_seconds: 300
+    token_budget: 100000
+
+ground_truth:
+  culprit:
+    service: postgres
+    component: max-connections-configuration
+    container: postgres
+    namespace: eventuate-tram-examples-customers-and-orders
+
+  category: database_connection_limit
+
+  root_cause: >-
+    PostgreSQL's max_connections was lowered to 5 via container args and the
+    database was restarted. With three Spring Boot services (order-service,
+    customer-service, cdc-service) each running HikariCP pools with a default
+    maximum of 10 connections, the total connection demand (~30) far exceeds
+    the 5-connection limit. PostgreSQL rejects connections beyond the limit
+    with "FATAL: too many clients already". Services fail their health checks,
+    enter CrashLoopBackOff, and the entire saga workflow is halted.
+
+  affected_services:
+    - order-service
+    - customer-service
+    - cdc-service
+    - api-gateway-service
+
+  expected_evidence:
+    metrics:
+      - "kube_pod_container_status_restarts_total increasing for order-service, customer-service, cdc-service"
+      - "pg_settings{name='max_connections'} == 5 (if postgres_exporter is available)"
+      - "up{application=~'order-service|customer-service'} == 0 (services are down)"
+      - "hikaricp_connections_active dropping to 0 or absent (pool cannot be established)"
+    logs:
+      - "FATAL: too many clients already (PostgreSQL rejection message)"
+      - "FATAL: sorry, too many clients already"
+      - "org.postgresql.util.PSQLException: FATAL: too many clients already"
+      - "HikariPool-1 - Exception during pool initialization"
+      - "com.zaxxer.hikari.pool.HikariPool$PoolInitializationException"
+      - "Spring Boot application context failed to start"
+    traces:
+      - "No new traces generated (services are not processing requests)"
+    k8s_events:
+      - "Back-off restarting failed container for order-service, customer-service, cdc-service"
+      - "Container readiness/liveness probe failures"
+      - "Postgres deployment args showing max_connections=5"
+
+  expected_tools:
+    - get_pod_logs
+    - describe_pod
+    - query_prometheus
+    - kubectl_exec
+
+  remediation:
+    summary: >-
+      Remove the max_connections=5 override from the PostgreSQL deployment args
+      to restore the default value (typically 100). Then restart the database
+      and the application services to re-establish their connection pools.
+    patch:
+      kubectl: >-
+        kubectl patch deployment postgres
+        -n eventuate-tram-examples-customers-and-orders
+        --type='json'
+        -p='[
+          {"op": "remove", "path": "/spec/template/spec/containers/0/args/4"},
+          {"op": "remove", "path": "/spec/template/spec/containers/0/args/3"}
+        ]'
+    verification: >-
+      PostgreSQL restarts with default max_connections (100), all services
+      successfully establish their HikariCP pools, pod restarts cease,
+      readiness probes pass, and the saga workflow processes orders normally.
+
+cleanup:
+  chaos_mesh:
+    resources: []
+
+  k8s:
+    delete: []
+
+  commands:
+    - >-
+      kubectl patch deployment postgres
+      -n eventuate-tram-examples-customers-and-orders
+      --type='json'
+      -p='[
+        {"op": "remove", "path": "/spec/template/spec/containers/0/args/4"},
+        {"op": "remove", "path": "/spec/template/spec/containers/0/args/3"}
+      ]'
+    - "kubectl rollout status deployment/postgres -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    - "kubectl rollout restart deployment/order-service -n eventuate-tram-examples-customers-and-orders"
+    - "kubectl rollout restart deployment/customer-service -n eventuate-tram-examples-customers-and-orders"
+    - "kubectl rollout restart deployment/cdc-service -n eventuate-tram-examples-customers-and-orders"
+    - "kubectl rollout status deployment/order-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+    - "kubectl rollout status deployment/cdc-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
+
+  baseline_verification:
+    promql: >-
+      kube_pod_container_status_ready{
+        namespace="eventuate-tram-examples-customers-and-orders",
+        container=~"order-service|customer-service|cdc-service"
+      }
+    operator: "=="
+    threshold: 1.0
+    timeout_seconds: 180
