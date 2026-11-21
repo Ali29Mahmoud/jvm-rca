@@ -257,6 +257,10 @@ scenario:
 scenario-clean:
 	@python3 benchmark/run_scenario.py $(s) --action cleanup
 
+## Run an incident benchmark agent: make bench s=S01 agent=dummy
+bench:
+	@python3 -m benchmark.harness run --scenario $(s) --agent $(or $(agent),dummy)
+
 ## Capture healthy-baseline state snapshot
 snapshot:
 	@bash scripts/capture-snapshot.sh snapshots/healthy-baseline

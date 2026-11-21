@@ -1,0 +1,20 @@
+{
+  "run_id": "ef535bda-9b8c-4b15-84aa-f15aba5094cd",
+  "scenario_id": "S01-order-service-memory-limit-lowered",
+  "agent_name": "dummy",
+  "started_at": "2026-11-21T11:38:04.428426Z",
+  "finished_at": "2026-11-21T11:38:04.428540Z",
+  "status": "completed",
+  "diagnosis": {
+    "category": "jvm_resource_exhaustion",
+    "culprit": "order-service",
+    "evidence": [
+      "Dummy agent uses scenario ground truth."
+    ],
+    "remediation": "Increase order-service container memory requests to at least 512Mi and memory limits to at least 1024Mi in the Deployment manifest.",
+    "confidence": 1.0
+  },
+  "budgets_used": {},
+  "raw_agent_output": "{\"category\":\"jvm_resource_exhaustion\",\"culprit\":\"order-service\",\"evidence\":[\"Dummy agent uses scenario ground truth.\"],\"remediation\":\"Increase order-service container memory requests to at least 512Mi and memory limits to at least 1024Mi in the Deployment manifest.\",\"confidence\":1.0}",
+  "errors": []
+}
