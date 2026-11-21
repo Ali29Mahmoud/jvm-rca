@@ -37,3 +37,8 @@ diagrams/README.md
 run_baseline.sh
 run_baseline.sh
 run_baseline.sh
+benchmark/results/runs.duckdb
+benchmark/results/S01-order-service-memory-limit-lowered/23a69ab0-469f-4d1f-a9dc-16afbffd1e22.json
+benchmark/results/S01-order-service-memory-limit-lowered/768ac0f2-ec04-491f-ba99-ce5e269cc205.json
+benchmark/results/S01-order-service-memory-limit-lowered/27451b00-60d6-4842-9ea7-04ec0727cce6.json
+benchmark/results/*

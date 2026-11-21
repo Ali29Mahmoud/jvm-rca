@@ -46,6 +46,8 @@ class Scenario(StrictModel):
     inject: dict[str, Any]
     symptom_check: dict[str, Any]
     ground_truth: dict[str, Any]
+    target: dict[str, Any] = Field(default_factory=dict)
+    agent_input: dict[str, Any] = Field(default_factory=dict)
     cleanup: dict[str, Any] = Field(default_factory=dict)
     budgets: dict[str, int] = Field(default_factory=dict)
 
@@ -67,6 +69,8 @@ class Scenario(StrictModel):
             "inject": raw.get("inject", {}),
             "symptom_check": raw.get("symptom_check", {}),
             "ground_truth": raw.get("ground_truth", {}),
+            "target": raw.get("target", {}),
+            "agent_input": raw.get("agent_input", {}),
             "cleanup": raw.get("cleanup", {}),
             "budgets": raw.get("agent_input", {}).get("budgets", {}),
         }
@@ -100,6 +104,113 @@ class DummyAgent:
             confidence=1.0,
         )
         return diagnosis, diagnosis.model_dump_json()
+
+
+class ControlAgentError(RuntimeError):
+    """The one-call control agent could not return a valid diagnosis."""
+
+
+class ControlAgent:
+    """Single-call, no-tools agent using an OpenAI-compatible chat endpoint."""
+
+    def __init__(self, request_fn=None):
+        self.request_fn = request_fn or _post_chat_completion
+
+    @staticmethod
+    def build_prompt(scenario: Scenario) -> str:
+        target = scenario.target
+        incident_prompt = scenario.agent_input.get("prompt", "")
+        symptom = scenario.symptom_check
+        return f"""You are a control agent in an incident diagnosis benchmark.
+Diagnose the incident from the supplied scenario context. You have no tools and
+must not claim that you queried metrics, logs, traces, Kubernetes, or databases.
+Use only the context below. Return one JSON object matching the supplied schema.
+
+Scenario: {scenario.id} — {scenario.name}
+Target service: {target.get('service', 'unspecified')}
+Target component: {target.get('component', 'unspecified')}
+Incident description:
+{scenario.description}
+
+Alert context:
+{incident_prompt}
+
+Symptom description:
+{symptom.get('description', '')}
+PromQL definition (query only; no observed value is provided):
+{symptom.get('promql', '')}
+
+Diagnosis JSON schema:
+{json.dumps(Diagnosis.model_json_schema(), separators=(',', ':'))}
+
+Respond with JSON fields category (string), culprit (string), evidence (array
+of strings), remediation (string), and optional confidence (number from 0 to 1).
+Do not include markdown fences or fields outside the schema."""
+
+    def run(self, scenario: Scenario) -> tuple[Diagnosis, str]:
+        prompt = self.build_prompt(scenario)
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        model = (
+            os.environ.get("BENCH_LLM_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or ("gemini-3.8-flash" if gemini_key else "gpt-4o-mini")
+        )
+        base_url = (
+            os.environ.get("BENCH_LLM_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("ANTHROPIC_BASE_URL")
+            or (
+                "https://generativelanguage.googleapis.com/v1beta/openai"
+                if gemini_key
+                else "https://api.openai.com/v1"
+            )
+        ).rstrip("/")
+        api_key = (
+            os.environ.get("BENCH_LLM_API_KEY")
+            or gemini_key
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+        )
+        if not api_key:
+            raise ControlAgentError("Set BENCH_LLM_API_KEY or OPENAI_API_KEY to run the control agent")
+        payload = {
+            "model": model,
+            "temperature": 0,
+            "max_tokens": 900,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": "Return only a diagnosis JSON object. No tools are available."},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        try:
+            response = self.request_fn(
+                f"{base_url}/chat/completions",
+                {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                payload,
+                60,
+            )
+            content = response["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                raise TypeError("assistant message content must be a string")
+            diagnosis = Diagnosis.model_validate_json(content)
+        except Exception as exc:
+            raise ControlAgentError(f"Control agent failed to produce a valid diagnosis: {exc}") from exc
+        return diagnosis, content
+
+
+def _post_chat_completion(url: str, headers: dict[str, str], payload: dict[str, Any], timeout: int) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read())
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise ControlAgentError(f"LLM request failed: {exc}") from exc
 
 
 def find_scenario(scenario_id: str) -> Path:
@@ -317,6 +428,7 @@ def run(
     real_reset: bool = False,
     check_symptom: bool = False,
     evidence_judge: EvidenceJudge | None = None,
+    control_agent: ControlAgent | None = None,
 ) -> RunResult:
     scenario = Scenario.from_yaml(find_scenario(scenario_id))
     started = datetime.now(timezone.utc)
@@ -330,9 +442,13 @@ def run(
         inject_fault(scenario)
         if check_symptom:
             wait_for_symptom(scenario)
-        if agent_name != "dummy":
-            raise ValueError(f"Unknown agent {agent_name!r}; available agents: dummy")
-        diagnosis, raw = DummyAgent().run(scenario)
+        if agent_name == "dummy":
+            agent = DummyAgent()
+        elif agent_name == "control":
+            agent = control_agent or ControlAgent()
+        else:
+            raise ValueError(f"Unknown agent {agent_name!r}; available agents: dummy, control")
+        diagnosis, raw = agent.run(scenario)
         result.diagnosis = diagnosis
         result.raw_agent_output = raw
         prompt_path = ROOT / "prompts" / "evidence-judge.txt"

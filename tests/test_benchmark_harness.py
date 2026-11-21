@@ -3,7 +3,15 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from benchmark.harness import Diagnosis, Scenario, SymptomTimeoutError, find_scenario, run, wait_for_symptom
+from benchmark.harness import (
+    ControlAgent,
+    Diagnosis,
+    Scenario,
+    SymptomTimeoutError,
+    find_scenario,
+    run,
+    wait_for_symptom,
+)
 from benchmark.scoring import score_diagnosis, should_manually_spot_check
 
 
@@ -35,6 +43,64 @@ def test_s01_dummy_run_persists_json_and_duckdb(tmp_path):
         row = connection.execute("SELECT scenario_id, agent_name, status, score FROM runs").fetchone()
     assert row[:3] == (result.scenario_id, "dummy", "completed")
     assert json.loads(row[3])["verdict"] == stored["score"]["verdict"]
+
+
+def test_control_agent_returns_valid_s01_diagnosis_with_one_toolless_call(tmp_path, monkeypatch):
+    monkeypatch.setenv("BENCH_LLM_API_KEY", "test-key")
+    scenario = Scenario.from_yaml(find_scenario("S01"))
+    reply = Diagnosis(
+        category="jvm_resource_exhaustion",
+        culprit="order-service",
+        evidence=["The order-service memory limit is below the JVM working set."],
+        remediation="Restore the order-service memory limit to at least 1024Mi.",
+        confidence=0.8,
+    )
+    calls = []
+
+    def request(url, headers, payload, timeout):
+        calls.append((url, headers, payload, timeout))
+        return {"choices": [{"message": {"content": reply.model_dump_json()}}]}
+
+    agent = ControlAgent(request_fn=request)
+    result = run("S01", "control", tmp_path, control_agent=agent)
+
+    assert result.status == "completed"
+    assert result.diagnosis == reply
+    assert result.score is not None
+    assert len(calls) == 1
+    url, headers, payload, timeout = calls[0]
+    assert url.endswith("/chat/completions")
+    assert headers["Authorization"] == "Bearer test-key"
+    assert timeout == 60
+    assert "tools" not in payload
+    assert "S01-order-service-memory-limit-lowered" in payload["messages"][1]["content"]
+
+
+def test_control_agent_uses_gemini_openai_compatible_defaults(monkeypatch):
+    monkeypatch.delenv("BENCH_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("BENCH_LLM_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("BENCH_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
+    observed = []
+
+    def request(url, headers, payload, timeout):
+        observed.append((url, headers, payload))
+        return {"choices": [{"message": {"content": '{"category":"x","culprit":"y","evidence":[],"remediation":"z"}'}}]}
+
+    scenario = Scenario.from_yaml(find_scenario("S01"))
+    ControlAgent(request_fn=request).run(scenario)
+
+    assert len(observed) == 1
+    url, headers, payload = observed[0]
+    assert url == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    assert headers["Authorization"] == "Bearer fake-gemini-key"
+    assert payload["model"] == "gemini-3.8-flash"
+    assert "tools" not in payload
 
 
 def test_symptom_check_polls_until_threshold_matches():
