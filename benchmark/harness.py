@@ -117,17 +117,25 @@ class ResetError(RuntimeError):
     """Reset could not restore or verify the baseline environment."""
 
 
-def query_prometheus(promql: str, prometheus_url: str | None = None) -> float:
-    """Run an instant PromQL query and return the maximum numeric sample."""
+class PrometheusQueryError(RuntimeError):
+    """Prometheus could not execute a PromQL query."""
+
+
+class SymptomTimeoutError(TimeoutError):
+    """The scenario symptom did not reach its configured condition in time."""
+
+
+def query_prometheus(promql: str, prometheus_url: str | None = None) -> float | None:
+    """Run an instant PromQL query; return the maximum sample or None for an empty vector."""
     base_url = (prometheus_url or os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")).rstrip("/")
     url = f"{base_url}/api/v1/query?{urllib.parse.urlencode({'query': promql})}"
     try:
         with urllib.request.urlopen(url, timeout=5) as response:
             payload = json.loads(response.read())
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        raise ResetError(f"Prometheus baseline query failed ({promql!r}): {exc}") from exc
+        raise PrometheusQueryError(f"Prometheus query failed ({promql!r}): {exc}") from exc
     if payload.get("status") != "success":
-        raise ResetError(f"Prometheus rejected baseline query {promql!r}: {payload.get('error', payload)}")
+        raise PrometheusQueryError(f"Prometheus rejected query {promql!r}: {payload.get('error', payload)}")
     values = []
     for item in payload.get("data", {}).get("result", []):
         try:
@@ -135,19 +143,74 @@ def query_prometheus(promql: str, prometheus_url: str | None = None) -> float:
         except (KeyError, IndexError, TypeError, ValueError):
             continue
     if not values:
-        raise ResetError(f"Prometheus baseline query returned no numeric samples: {promql!r}")
+        if not payload.get("data", {}).get("result"):
+            return None
+        raise PrometheusQueryError(f"Prometheus returned no numeric samples: {promql!r}")
     return max(values)
 
 
 def _matches(value: float, operator: str, threshold: float) -> bool:
-    return {
+    comparison = {
         ">": value > threshold,
         ">=": value >= threshold,
         "<": value < threshold,
         "<=": value <= threshold,
         "==": value == threshold,
         "!=": value != threshold,
-    }.get(operator, False)
+    }.get(operator)
+    if comparison is None:
+        raise ValueError(f"Unsupported comparison operator {operator!r}; use one of >, >=, <, <=, ==, !=")
+    return comparison
+
+
+def wait_for_symptom(
+    scenario: Scenario,
+    query_fn=query_prometheus,
+    sleep_fn=time.sleep,
+) -> float:
+    """Poll Prometheus until the scenario's symptom condition passes or times out."""
+    symptom = scenario.symptom_check
+    promql = str(symptom.get("promql", "")).strip()
+    operator = str(symptom.get("operator", ">="))
+    threshold = float(symptom.get("threshold", 0))
+    wait = symptom.get("wait", {})
+    initial_delay = max(0.0, float(wait.get("initial_delay_seconds", 0)))
+    interval = float(wait.get("interval_seconds", 5))
+    timeout = float(wait.get("timeout_seconds", 120))
+    if not promql:
+        raise ValueError(f"Scenario {scenario.id} symptom_check has an empty PromQL query")
+    if interval <= 0 or timeout <= 0:
+        raise ValueError(f"Scenario {scenario.id} symptom_check interval and timeout must be positive")
+    # Validate the operator before spending time polling.
+    _matches(0.0, operator, threshold)
+
+    start = time.monotonic()
+    deadline = start + timeout
+    if initial_delay:
+        sleep_fn(min(initial_delay, timeout))
+    last_value: float | None = None
+    last_error = "no sample received"
+    while time.monotonic() < deadline:
+        try:
+            last_value = query_fn(promql)
+            if last_value is None:
+                last_error = "Prometheus returned an empty result"
+            elif _matches(last_value, operator, threshold):
+                return last_value
+            else:
+                last_error = f"last value {last_value:g}"
+        except PrometheusQueryError as exc:
+            last_error = str(exc)
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            sleep_fn(min(interval, remaining))
+
+    elapsed = time.monotonic() - start
+    shown_value = "none" if last_value is None else f"{last_value:g}"
+    raise SymptomTimeoutError(
+        f"Symptom check timed out after {elapsed:.1f}s for scenario {scenario.id}: "
+        f"query={promql!r}, last_value={shown_value}, condition value {operator} {threshold:g}; {last_error}"
+    )
 
 
 def wait_for_baseline(scenario: Scenario, query_fn=query_prometheus) -> None:
@@ -167,10 +230,13 @@ def wait_for_baseline(scenario: Scenario, query_fn=query_prometheus) -> None:
         try:
             value = query_fn(promql)
             last_error = f"last value {value:g}"
-            if _matches(value, operator, threshold):
+            if value is not None and _matches(value, operator, threshold):
                 return
-        except ResetError as exc:
+        except PrometheusQueryError as exc:
             last_error = str(exc)
+        else:
+            if value is None:
+                last_error = "Prometheus returned an empty result"
         time.sleep(min(interval, max(0, timeout - (time.monotonic() - start))))
     elapsed = time.monotonic() - start
     raise ResetError(
@@ -198,10 +264,6 @@ def reset(scenario: Scenario, *, real: bool = False, query_fn=query_prometheus) 
 
 def inject_fault(_scenario: Scenario) -> None:
     """Local harness injection stub; avoids mutating a cluster in dummy runs."""
-
-
-def wait_for_symptom(_scenario: Scenario) -> None:
-    """Local harness symptom stub; dummy runs don't require live Prometheus."""
 
 
 def store_result(result: RunResult, results_dir: Path) -> Path:
@@ -242,6 +304,7 @@ def run(
     results_dir: Path = DEFAULT_RESULTS,
     *,
     real_reset: bool = False,
+    check_symptom: bool = False,
 ) -> RunResult:
     scenario = Scenario.from_yaml(find_scenario(scenario_id))
     started = datetime.now(timezone.utc)
@@ -253,7 +316,8 @@ def run(
     try:
         reset(scenario, real=real_reset)
         inject_fault(scenario)
-        wait_for_symptom(scenario)
+        if check_symptom:
+            wait_for_symptom(scenario)
         if agent_name != "dummy":
             raise ValueError(f"Unknown agent {agent_name!r}; available agents: dummy")
         diagnosis, raw = DummyAgent().run(scenario)
@@ -262,6 +326,8 @@ def run(
         result.status = "completed"
     except Exception as exc:
         result.errors.append(f"{type(exc).__name__}: {exc}")
+        if isinstance(exc, SymptomTimeoutError):
+            result.status = "timeout"
     finally:
         result.finished_at = datetime.now(timezone.utc)
         store_result(result, results_dir)
@@ -276,9 +342,16 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--agent", required=True)
     run_parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS)
     run_parser.add_argument("--real-reset", action="store_true", help="reset the Kubernetes benchmark environment and verify baseline health")
+    run_parser.add_argument("--check-symptom", action="store_true", help="poll Prometheus for the scenario symptom (requires live infrastructure)")
     args = parser.parse_args(argv)
     # Keep the default dummy workflow safe for local plumbing checks.
-    result = run(args.scenario, args.agent, args.results_dir, real_reset=args.real_reset)
+    result = run(
+        args.scenario,
+        args.agent,
+        args.results_dir,
+        real_reset=args.real_reset,
+        check_symptom=args.check_symptom,
+    )
     print(result.model_dump_json(indent=2))
     return 0 if result.status == "completed" else 1
 

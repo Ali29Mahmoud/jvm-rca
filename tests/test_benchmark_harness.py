@@ -3,7 +3,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from benchmark.harness import Scenario, find_scenario, run
+from benchmark.harness import Scenario, SymptomTimeoutError, find_scenario, run, wait_for_symptom
 
 
 def test_every_scenario_yaml_loads():
@@ -30,3 +30,35 @@ def test_s01_dummy_run_persists_json_and_duckdb(tmp_path):
     with duckdb.connect(str(tmp_path / "runs.duckdb"), read_only=True) as connection:
         row = connection.execute("SELECT scenario_id, agent_name, status FROM runs").fetchone()
     assert row == (result.scenario_id, "dummy", "completed")
+
+
+def test_symptom_check_polls_until_threshold_matches():
+    scenario = Scenario.from_yaml(find_scenario("S01"))
+    scenario.symptom_check["wait"] = {
+        "initial_delay_seconds": 0,
+        "interval_seconds": 0.001,
+        "timeout_seconds": 0.1,
+    }
+    observed = iter([0.0, 0.0, 1.0])
+
+    value = wait_for_symptom(scenario, query_fn=lambda _query: next(observed))
+
+    assert value == 1.0
+
+
+def test_symptom_check_timeout_reports_query_value_and_threshold():
+    scenario = Scenario.from_yaml(find_scenario("S01"))
+    scenario.symptom_check["wait"] = {
+        "initial_delay_seconds": 0,
+        "interval_seconds": 0.001,
+        "timeout_seconds": 0.01,
+    }
+
+    with pytest.raises(SymptomTimeoutError) as exc_info:
+        wait_for_symptom(scenario, query_fn=lambda _query: 0.0)
+
+    message = str(exc_info.value)
+    assert "timed out" in message
+    assert scenario.symptom_check["promql"] in message
+    assert "last_value=0" in message
+    assert "value >= 1" in message
