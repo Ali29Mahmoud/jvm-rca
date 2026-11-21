@@ -20,6 +20,8 @@ import duckdb
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from benchmark.scoring import EvidenceJudge, ScoreResult, append_spot_check, score_diagnosis
+
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULTS = ROOT / "results"
@@ -79,6 +81,7 @@ class RunResult(StrictModel):
     finished_at: datetime
     status: Literal["completed", "timeout", "budget_exceeded", "error"]
     diagnosis: Diagnosis | None = None
+    score: ScoreResult | None = None
     budgets_used: dict[str, int] = Field(default_factory=dict)
     raw_agent_output: str | None = None
     errors: list[str] = Field(default_factory=list)
@@ -281,18 +284,26 @@ def store_result(result: RunResult, results_dir: Path) -> Path:
                 finished_at TIMESTAMP,
                 status VARCHAR,
                 diagnosis JSON,
+                score JSON,
                 budgets_used JSON,
                 raw_agent_output VARCHAR,
                 errors JSON
             )
         """)
+        columns = {row[1] for row in connection.execute("PRAGMA table_info('runs')").fetchall()}
+        if "score" not in columns:
+            connection.execute("ALTER TABLE runs ADD COLUMN score JSON")
         connection.execute("""
-            INSERT OR REPLACE INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO runs (
+                run_id, scenario_id, agent_name, started_at, finished_at, status,
+                diagnosis, score, budgets_used, raw_agent_output, errors
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, [
             result.run_id, result.scenario_id, result.agent_name,
             result.started_at.replace(tzinfo=None), result.finished_at.replace(tzinfo=None),
             result.status,
             result.diagnosis.model_dump_json() if result.diagnosis else None,
+            result.score.model_dump_json() if result.score else None,
             json.dumps(result.budgets_used), result.raw_agent_output, json.dumps(result.errors),
         ])
     return path
@@ -305,6 +316,7 @@ def run(
     *,
     real_reset: bool = False,
     check_symptom: bool = False,
+    evidence_judge: EvidenceJudge | None = None,
 ) -> RunResult:
     scenario = Scenario.from_yaml(find_scenario(scenario_id))
     started = datetime.now(timezone.utc)
@@ -323,6 +335,22 @@ def run(
         diagnosis, raw = DummyAgent().run(scenario)
         result.diagnosis = diagnosis
         result.raw_agent_output = raw
+        prompt_path = ROOT / "prompts" / "evidence-judge.txt"
+        judge_prompt = prompt_path.read_text() if prompt_path.exists() else ""
+        result.score = score_diagnosis(
+            diagnosis,
+            scenario.ground_truth,
+            run_id,
+            evidence_judge=evidence_judge,
+            judge_prompt=judge_prompt,
+        )
+        append_spot_check(
+            results_dir / "manual-spot-checks.md",
+            run_id,
+            scenario.id,
+            result.score.verdict,
+            result.score.total,
+        )
         result.status = "completed"
     except Exception as exc:
         result.errors.append(f"{type(exc).__name__}: {exc}")
