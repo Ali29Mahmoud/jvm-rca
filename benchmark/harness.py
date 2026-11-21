@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import time
 import uuid
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -38,6 +44,7 @@ class Scenario(StrictModel):
     inject: dict[str, Any]
     symptom_check: dict[str, Any]
     ground_truth: dict[str, Any]
+    cleanup: dict[str, Any] = Field(default_factory=dict)
     budgets: dict[str, int] = Field(default_factory=dict)
 
     @classmethod
@@ -58,6 +65,7 @@ class Scenario(StrictModel):
             "inject": raw.get("inject", {}),
             "symptom_check": raw.get("symptom_check", {}),
             "ground_truth": raw.get("ground_truth", {}),
+            "cleanup": raw.get("cleanup", {}),
             "budgets": raw.get("agent_input", {}).get("budgets", {}),
         }
         return cls.model_validate(data)
@@ -105,8 +113,87 @@ def find_scenario(scenario_id: str) -> Path:
     raise FileNotFoundError(f"Unknown scenario {scenario_id!r}; searched {ROOT / 'scenarios'}")
 
 
-def reset(_scenario: Scenario) -> None:
-    """Local harness reset stub; real infrastructure reset is opt-in future wiring."""
+class ResetError(RuntimeError):
+    """Reset could not restore or verify the baseline environment."""
+
+
+def query_prometheus(promql: str, prometheus_url: str | None = None) -> float:
+    """Run an instant PromQL query and return the maximum numeric sample."""
+    base_url = (prometheus_url or os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")).rstrip("/")
+    url = f"{base_url}/api/v1/query?{urllib.parse.urlencode({'query': promql})}"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            payload = json.loads(response.read())
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise ResetError(f"Prometheus baseline query failed ({promql!r}): {exc}") from exc
+    if payload.get("status") != "success":
+        raise ResetError(f"Prometheus rejected baseline query {promql!r}: {payload.get('error', payload)}")
+    values = []
+    for item in payload.get("data", {}).get("result", []):
+        try:
+            values.append(float(item["value"][1]))
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+    if not values:
+        raise ResetError(f"Prometheus baseline query returned no numeric samples: {promql!r}")
+    return max(values)
+
+
+def _matches(value: float, operator: str, threshold: float) -> bool:
+    return {
+        ">": value > threshold,
+        ">=": value >= threshold,
+        "<": value < threshold,
+        "<=": value <= threshold,
+        "==": value == threshold,
+        "!=": value != threshold,
+    }.get(operator, False)
+
+
+def wait_for_baseline(scenario: Scenario, query_fn=query_prometheus) -> None:
+    verification = scenario.cleanup.get("baseline_verification")
+    if not verification:
+        raise ResetError(f"Scenario {scenario.id} has no cleanup.baseline_verification check")
+    promql = verification.get("promql", "").strip()
+    operator = verification.get("operator", "==")
+    threshold = float(verification.get("threshold", 0))
+    timeout = float(verification.get("timeout_seconds", 120))
+    interval = float(verification.get("interval_seconds", 2))
+    if not promql:
+        raise ResetError(f"Scenario {scenario.id} baseline verification has an empty PromQL query")
+    start = time.monotonic()
+    last_error = "no sample received"
+    while time.monotonic() - start < timeout:
+        try:
+            value = query_fn(promql)
+            last_error = f"last value {value:g}"
+            if _matches(value, operator, threshold):
+                return
+        except ResetError as exc:
+            last_error = str(exc)
+        time.sleep(min(interval, max(0, timeout - (time.monotonic() - start))))
+    elapsed = time.monotonic() - start
+    raise ResetError(
+        f"Baseline health check timed out after {elapsed:.1f}s: query={promql!r}, "
+        f"condition value {operator} {threshold:g}; {last_error}"
+    )
+
+
+def reset(scenario: Scenario, *, real: bool = False, query_fn=query_prometheus) -> None:
+    """Restore the clean application baseline when explicitly enabled.
+
+    The repository's reset script truncates application state (the established
+    empty baseline), resets Kafka by restarting its broker, and resets
+    pg_stat_statements. Set ``real=True`` to mutate the configured cluster.
+    """
+    if not real:
+        return
+    script = Path(__file__).resolve().parents[1] / "scripts" / "reset-environment.sh"
+    try:
+        subprocess.run(["bash", str(script)], check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ResetError(f"Environment reset failed: {exc}") from exc
+    wait_for_baseline(scenario, query_fn=query_fn)
 
 
 def inject_fault(_scenario: Scenario) -> None:
@@ -149,7 +236,13 @@ def store_result(result: RunResult, results_dir: Path) -> Path:
     return path
 
 
-def run(scenario_id: str, agent_name: str, results_dir: Path = DEFAULT_RESULTS) -> RunResult:
+def run(
+    scenario_id: str,
+    agent_name: str,
+    results_dir: Path = DEFAULT_RESULTS,
+    *,
+    real_reset: bool = False,
+) -> RunResult:
     scenario = Scenario.from_yaml(find_scenario(scenario_id))
     started = datetime.now(timezone.utc)
     run_id = str(uuid.uuid4())
@@ -158,7 +251,7 @@ def run(scenario_id: str, agent_name: str, results_dir: Path = DEFAULT_RESULTS) 
         started_at=started, finished_at=started, status="error",
     )
     try:
-        reset(scenario)
+        reset(scenario, real=real_reset)
         inject_fault(scenario)
         wait_for_symptom(scenario)
         if agent_name != "dummy":
@@ -182,8 +275,10 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--scenario", required=True)
     run_parser.add_argument("--agent", required=True)
     run_parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS)
+    run_parser.add_argument("--real-reset", action="store_true", help="reset the Kubernetes benchmark environment and verify baseline health")
     args = parser.parse_args(argv)
-    result = run(args.scenario, args.agent, args.results_dir)
+    # Keep the default dummy workflow safe for local plumbing checks.
+    result = run(args.scenario, args.agent, args.results_dir, real_reset=args.real_reset)
     print(result.model_dump_json(indent=2))
     return 0 if result.status == "completed" else 1
 

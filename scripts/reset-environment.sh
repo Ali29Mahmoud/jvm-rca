@@ -51,13 +51,23 @@ db.customerView.deleteMany({});
 "
 echo "✓ MongoDB customerView collection cleaned"
 
-echo "=== [4/6] Resetting Kafka topics and consumer offsets ==="
-# Restarting the Kafka broker empties the non-persistent log segments in memory/container FS
+echo "=== [4/6] Clearing fault flags and Chaos Mesh experiments ==="
+# Chaos experiments are benchmark fault flags. Delete only resources in the
+# application namespace; ignore missing CRDs/resources so reset is repeatable.
+for resource in podchaos networkchaos stresschaos iochaos timechaos kernelchaos dnschaos httpchaos; do
+  kubectl delete "$resource" --all -n "$NS" --ignore-not-found=true 2>/dev/null || true
+done
+kubectl delete schedule --all -n "$NS" --ignore-not-found=true 2>/dev/null || true
+echo "✓ Namespaced Chaos Mesh experiments cleared"
+
+echo "=== [5/7] Resetting Kafka topics and consumer offsets ==="
+# Kafka in this cluster uses ephemeral broker storage. Restarting the broker
+# clears topic data; restarting consumers below establishes fresh group state.
 kubectl rollout restart deploy/kafka -n "$NS"
 kubectl rollout status deploy/kafka -n "$NS" --timeout=90s
-echo "✓ Kafka topics reset"
+echo "✓ Kafka broker restarted; ephemeral topic data reset"
 
-echo "=== [5/6] Scaling microservices back up ==="
+echo "=== [6/7] Scaling microservices back up ==="
 kubectl scale deploy/cdc-service deploy/customer-service deploy/order-service deploy/order-history-service \
   -n "$NS" --replicas=1
 
@@ -67,5 +77,12 @@ kubectl rollout status deploy/customer-service -n "$NS" --timeout=90s
 kubectl rollout status deploy/order-service -n "$NS" --timeout=90s
 kubectl rollout status deploy/order-history-service -n "$NS" --timeout=90s
 
-echo "=== [6/6] Reset Completed Successfully ==="
+echo "=== [7/7] Baseline pod health ==="
+kubectl wait --for=condition=ready pod -l svc=customer-service -n "$NS" --timeout=120s
+kubectl wait --for=condition=ready pod -l svc=order-service -n "$NS" --timeout=120s
+kubectl wait --for=condition=ready pod -l svc=order-history-service -n "$NS" --timeout=120s
+kubectl wait --for=condition=ready pod -l svc=cdc-service -n "$NS" --timeout=120s
+echo "✓ Application pods are Ready"
+
+echo "=== Reset Completed Successfully ==="
 kubectl get pods -n "$NS"
