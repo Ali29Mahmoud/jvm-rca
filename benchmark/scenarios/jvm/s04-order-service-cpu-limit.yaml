@@ -132,7 +132,7 @@ cleanup:
     delete: []
 
   commands:
-    - "pkill -f 'k6 run' || true"
+    - "pkill -f '[k]6 run' || true"
     - >-
       kubectl patch deployment order-service
       -n eventuate-tram-examples-customers-and-orders

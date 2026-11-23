@@ -108,7 +108,7 @@ cleanup:
   chaos_mesh:
     resources: []
   commands:
-    - "pkill -f lock-customer-row.py || true"
+    - "pkill -f 'lock-customer-[r]ow.py' || true"
     - >-
       kubectl exec -n eventuate-tram-examples-customers-and-orders deploy/postgres --
       psql -U eventuate -d eventuate -c "

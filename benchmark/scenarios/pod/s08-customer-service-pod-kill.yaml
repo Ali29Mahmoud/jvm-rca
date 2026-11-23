@@ -158,7 +158,7 @@ cleanup:
     delete: []
 
   commands:
-    - "pkill -f 'k6 run' || true"
+    - "pkill -f '[k]6 run' || true"
     - "kubectl delete schedule s08-customer-service-pod-kill -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
     - "kubectl delete podchaos s08-customer-service-pod-kill -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
     - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"

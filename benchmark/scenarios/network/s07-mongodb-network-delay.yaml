@@ -54,25 +54,23 @@ inject:
 
   commands:
     - >-
-      GATEWAY_URL="http://127.0.0.1:8085"
+      GATEWAY_URL="http://127.0.0.1:8085" ORDER_HISTORY_READS=true
       k6 run --vus 10 --duration 3m k6/load-test.js &
 
 symptom_check:
   description: >-
-    Verify that order-history-service is experiencing degraded performance due
-    to the MongoDB network delay. We check for 5xx errors or elevated latency
-    on order-history-service routes, indicating that MongoDB write operations
-    are timing out or taking excessively long, causing the Kafka consumer to
-    fall behind and HTTP requests to fail or slow down.
+    Verify that Mongo-backed order-history lookups are slow while the MongoDB
+    network delay is active. The workload explicitly calls the order-history
+    route, so its maximum server-side latency should exceed two seconds.
   promql: >-
-    sum(rate(http_server_requests_seconds_count{
+    max(http_server_requests_seconds_max{
       namespace="eventuate-tram-examples-customers-and-orders",
       application="order-history-service",
-      status=~"5.."
-    }[1m])) 
-  operator: ">"
-  threshold: 0.0
-  unit: "errors/second"
+      uri=~"/customers/.*/orderhistory"
+    })
+  operator: ">="
+  threshold: 2.0
+  unit: "seconds"
   wait:
     initial_delay_seconds: 30
     interval_seconds: 10
@@ -171,7 +169,7 @@ cleanup:
     delete: []
 
   commands:
-    - "pkill -f 'k6 run' || true"
+    - "pkill -f '[k]6 run' || true"
     - "kubectl delete networkchaos s07-mongodb-network-delay -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
     - "sleep 15"
 

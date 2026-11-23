@@ -149,30 +149,37 @@ Do not include markdown fences or fields outside the schema."""
 
     def run(self, scenario: Scenario) -> tuple[Diagnosis, str]:
         prompt = self.build_prompt(scenario)
+        openrouter_key = os.environ.get("OPENROUTER_API_KEY")
         gemini_key = os.environ.get("GEMINI_API_KEY")
         model = (
             os.environ.get("BENCH_LLM_MODEL")
             or os.environ.get("OPENAI_MODEL")
-            or ("gemini-3.8-flash" if gemini_key else "gpt-4o-mini")
+            or ("openrouter/free" if openrouter_key else "gemini-3.8-flash" if gemini_key else "gpt-4o-mini")
         )
         base_url = (
             os.environ.get("BENCH_LLM_BASE_URL")
             or os.environ.get("OPENAI_BASE_URL")
             or os.environ.get("ANTHROPIC_BASE_URL")
             or (
-                "https://generativelanguage.googleapis.com/v1beta/openai"
+                "https://openrouter.ai/api/v1"
+                if openrouter_key
+                else "https://generativelanguage.googleapis.com/v1beta/openai"
                 if gemini_key
                 else "https://api.openai.com/v1"
             )
         ).rstrip("/")
         api_key = (
             os.environ.get("BENCH_LLM_API_KEY")
+            or openrouter_key
             or gemini_key
             or os.environ.get("OPENAI_API_KEY")
             or os.environ.get("ANTHROPIC_API_KEY")
         )
         if not api_key:
-            raise ControlAgentError("Set BENCH_LLM_API_KEY or OPENAI_API_KEY to run the control agent")
+            raise ControlAgentError(
+                "Set BENCH_LLM_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY "
+                "to run the control agent"
+            )
         payload = {
             "model": model,
             "temperature": 0,
@@ -191,6 +198,10 @@ Do not include markdown fences or fields outside the schema."""
                 60,
             )
             content = response["choices"][0]["message"]["content"]
+            # OpenRouter may return a parsed JSON object when using response_format=json_object.
+            # Convert it to a JSON string so the downstream validation works uniformly.
+            if isinstance(content, dict):
+                content = json.dumps(content)
             if not isinstance(content, str):
                 raise TypeError("assistant message content must be a string")
             diagnosis = Diagnosis.model_validate_json(content)
@@ -386,6 +397,7 @@ def store_result(result: RunResult, results_dir: Path) -> Path:
     path.write_text(result.model_dump_json(indent=2) + "\n")
     db_path = results_dir / "runs.duckdb"
     with duckdb.connect(str(db_path)) as connection:
+        connection.execute("SET storage_compatibility_version='v1.2.0'")
         connection.execute("""
             CREATE TABLE IF NOT EXISTS runs (
                 run_id VARCHAR PRIMARY KEY,
@@ -401,22 +413,67 @@ def store_result(result: RunResult, results_dir: Path) -> Path:
                 errors JSON
             )
         """)
-        columns = {row[1] for row in connection.execute("PRAGMA table_info('runs')").fetchall()}
+        table_info = connection.execute("PRAGMA table_info('runs')").fetchall()
+        columns = {row[1] for row in table_info}
         if "score" not in columns:
             connection.execute("ALTER TABLE runs ADD COLUMN score JSON")
-        connection.execute("""
-            INSERT OR REPLACE INTO runs (
-                run_id, scenario_id, agent_name, started_at, finished_at, status,
-                diagnosis, score, budgets_used, raw_agent_output, errors
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
+        has_pk = any(row[1] == "run_id" and bool(row[5]) for row in table_info)
+        if not has_pk:
+            try:
+                connection.execute("ALTER TABLE runs ADD PRIMARY KEY (run_id)")
+            except Exception:
+                try:
+                    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS runs_run_id_idx ON runs (run_id)")
+                except Exception:
+                    pass
+        values = [
             result.run_id, result.scenario_id, result.agent_name,
             result.started_at.replace(tzinfo=None), result.finished_at.replace(tzinfo=None),
             result.status,
             result.diagnosis.model_dump_json() if result.diagnosis else None,
             result.score.model_dump_json() if result.score else None,
             json.dumps(result.budgets_used), result.raw_agent_output, json.dumps(result.errors),
-        ])
+        ]
+        try:
+            connection.execute("""
+                INSERT INTO runs (
+                    run_id, scenario_id, agent_name, started_at, finished_at, status,
+                    diagnosis, score, budgets_used, raw_agent_output, errors
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    scenario_id = excluded.scenario_id,
+                    agent_name = excluded.agent_name,
+                    started_at = excluded.started_at,
+                    finished_at = excluded.finished_at,
+                    status = excluded.status,
+                    diagnosis = excluded.diagnosis,
+                    score = excluded.score,
+                    budgets_used = excluded.budgets_used,
+                    raw_agent_output = excluded.raw_agent_output,
+                    errors = excluded.errors
+            """, values)
+        except duckdb.BinderException:
+            updated = connection.execute("""
+                UPDATE runs SET
+                    scenario_id = ?, agent_name = ?, started_at = ?, finished_at = ?, status = ?,
+                    diagnosis = ?, score = ?, budgets_used = ?, raw_agent_output = ?, errors = ?
+                WHERE run_id = ?
+            """, [
+                result.scenario_id, result.agent_name,
+                result.started_at.replace(tzinfo=None), result.finished_at.replace(tzinfo=None),
+                result.status,
+                result.diagnosis.model_dump_json() if result.diagnosis else None,
+                result.score.model_dump_json() if result.score else None,
+                json.dumps(result.budgets_used), result.raw_agent_output, json.dumps(result.errors),
+                result.run_id,
+            ]).rowcount
+            if not updated:
+                connection.execute("""
+                    INSERT INTO runs (
+                        run_id, scenario_id, agent_name, started_at, finished_at, status,
+                        diagnosis, score, budgets_used, raw_agent_output, errors
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, values)
     return path
 
 

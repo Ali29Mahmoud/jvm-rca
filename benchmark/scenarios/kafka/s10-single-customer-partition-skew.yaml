@@ -104,4 +104,4 @@ cleanup:
   chaos_mesh:
     resources: []
   commands:
-    - "pkill -f load-single-customer.js || true"
+    - "pkill -f 'load-single-[c]ustomer.js' || true"

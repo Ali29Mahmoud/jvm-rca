@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -6,10 +7,12 @@ import pytest
 from benchmark.harness import (
     ControlAgent,
     Diagnosis,
+    RunResult,
     Scenario,
     SymptomTimeoutError,
     find_scenario,
     run,
+    store_result,
     wait_for_symptom,
 )
 from benchmark.scoring import score_diagnosis, should_manually_spot_check
@@ -43,6 +46,41 @@ def test_s01_dummy_run_persists_json_and_duckdb(tmp_path):
         row = connection.execute("SELECT scenario_id, agent_name, status, score FROM runs").fetchone()
     assert row[:3] == (result.scenario_id, "dummy", "completed")
     assert json.loads(row[3])["verdict"] == stored["score"]["verdict"]
+
+
+def test_store_result_handles_table_without_primary_key(tmp_path):
+    db_path = tmp_path / "runs.duckdb"
+    with duckdb.connect(str(db_path)) as connection:
+        connection.execute("""
+            CREATE TABLE runs (
+                run_id VARCHAR,
+                scenario_id VARCHAR,
+                agent_name VARCHAR,
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                status VARCHAR,
+                diagnosis JSON,
+                score JSON,
+                budgets_used JSON,
+                raw_agent_output VARCHAR,
+                errors JSON
+            )
+        """)
+    now = datetime.now(timezone.utc)
+    result = RunResult(
+        run_id="test-unconstrained-id",
+        scenario_id="S01",
+        agent_name="dummy",
+        started_at=now,
+        finished_at=now,
+        status="completed",
+    )
+    store_result(result, tmp_path)
+    with duckdb.connect(str(db_path), read_only=True) as connection:
+        row = connection.execute(
+            "SELECT run_id, scenario_id, status FROM runs WHERE run_id = 'test-unconstrained-id'"
+        ).fetchone()
+    assert row == ("test-unconstrained-id", "S01", "completed")
 
 
 def test_control_agent_returns_valid_s01_diagnosis_with_one_toolless_call(tmp_path, monkeypatch):
@@ -85,6 +123,7 @@ def test_control_agent_uses_gemini_openai_compatible_defaults(monkeypatch):
     monkeypatch.delenv("BENCH_LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
     observed = []
 
@@ -100,6 +139,34 @@ def test_control_agent_uses_gemini_openai_compatible_defaults(monkeypatch):
     assert url == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     assert headers["Authorization"] == "Bearer fake-gemini-key"
     assert payload["model"] == "gemini-3.8-flash"
+    assert "tools" not in payload
+
+
+def test_control_agent_uses_openrouter_free_defaults(monkeypatch):
+    monkeypatch.delenv("BENCH_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("BENCH_LLM_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("BENCH_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-openrouter-key")
+    observed = []
+
+    def request(url, headers, payload, timeout):
+        observed.append((url, headers, payload))
+        return {"choices": [{"message": {"content": '{"category":"x","culprit":"y","evidence":[],"remediation":"z"}'}}]}
+
+    scenario = Scenario.from_yaml(find_scenario("S01"))
+    ControlAgent(request_fn=request).run(scenario)
+
+    assert len(observed) == 1
+    url, headers, payload = observed[0]
+    assert url == "https://openrouter.ai/api/v1/chat/completions"
+    assert headers["Authorization"] == "Bearer fake-openrouter-key"
+    assert payload["model"] == "openrouter/free"
     assert "tools" not in payload
 
 

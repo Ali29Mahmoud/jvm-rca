@@ -32,6 +32,12 @@ inject:
   type: chaos-mesh
   timeout: 180s
 
+  # The gateway times out DB-backed customer creation while the 2s Postgres
+  # delay is active. Seed IDs first, then pass them to k6 via CUSTOMER_IDS.
+  seed_customers:
+    count: 5
+    credit_limit: 1000000
+
   chaos_mesh:
     apiVersion: chaos-mesh.org/v1alpha1
     kind: NetworkChaos
@@ -170,7 +176,7 @@ cleanup:
     delete: []
 
   commands:
-    - "pkill -f 'k6 run' || true"
+    - "pkill -f '[k]6 run' || true"
     - "kubectl delete networkchaos s06-postgres-network-delay -n eventuate-tram-examples-customers-and-orders --ignore-not-found"
     - "sleep 15"
 

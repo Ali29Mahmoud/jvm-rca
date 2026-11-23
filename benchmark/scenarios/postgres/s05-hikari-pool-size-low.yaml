@@ -40,17 +40,19 @@ inject:
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
       SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE=1
       SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT=30000
+      SPRING_FLYWAY_ENABLED=false
     - >-
       kubectl set env deployment/customer-service
       -n eventuate-tram-examples-customers-and-orders
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
       SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE=1
       SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT=30000
+      SPRING_FLYWAY_ENABLED=false
     - "kubectl rollout status deployment/order-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
     - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
     - >-
-      GATEWAY_URL="http://127.0.0.1:8085"
-      k6 run --vus 10 --duration 3m k6/load-test.js &
+      GATEWAY_URL="http://127.0.0.1:8085" THINK_TIME_SECONDS=0
+      k6 run --vus 50 --duration 3m k6/load-test.js &
 
 symptom_check:
   description: >-
@@ -162,19 +164,21 @@ cleanup:
     delete: []
 
   commands:
-    - "pkill -f 'k6 run' || true"
+    - "pkill -f '[k]6 run' || true"
     - >-
       kubectl set env deployment/order-service
       -n eventuate-tram-examples-customers-and-orders
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE-
       SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE-
       SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT-
+      SPRING_FLYWAY_ENABLED-
     - >-
       kubectl set env deployment/customer-service
       -n eventuate-tram-examples-customers-and-orders
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE-
       SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE-
       SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT-
+      SPRING_FLYWAY_ENABLED-
     - "kubectl rollout status deployment/order-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
     - "kubectl rollout status deployment/customer-service -n eventuate-tram-examples-customers-and-orders --timeout=120s"
 
