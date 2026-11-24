@@ -83,6 +83,29 @@ def test_store_result_handles_table_without_primary_key(tmp_path):
     assert row == ("test-unconstrained-id", "S01", "completed")
 
 
+def test_store_result_keeps_json_when_duckdb_is_locked(tmp_path, monkeypatch):
+    now = datetime.now(timezone.utc)
+    result = RunResult(
+        run_id="locked-db-id",
+        scenario_id="S01",
+        agent_name="dummy",
+        started_at=now,
+        finished_at=now,
+        status="completed",
+    )
+
+    def locked_connect(*_args, **_kwargs):
+        raise duckdb.IOException("Could not set lock on file")
+
+    monkeypatch.setattr("benchmark.harness.duckdb.connect", locked_connect)
+
+    with pytest.warns(RuntimeWarning, match="Saved run JSON"):
+        path = store_result(result, tmp_path)
+
+    assert path.exists()
+    assert json.loads(path.read_text())["run_id"] == result.run_id
+
+
 def test_control_agent_returns_valid_s01_diagnosis_with_one_toolless_call(tmp_path, monkeypatch):
     monkeypatch.setenv("BENCH_LLM_API_KEY", "test-key")
     scenario = Scenario.from_yaml(find_scenario("S01"))
