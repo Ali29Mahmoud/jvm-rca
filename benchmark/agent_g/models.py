@@ -12,7 +12,16 @@ class StrictModel(BaseModel):
 
 class ToolCall(StrictModel):
     model_config = ConfigDict(extra="allow")
-    tool: Literal["promql", "logql", "trace_search", "kubectl"]
+    tool: Literal[
+        "promql",
+        "logql",
+        "trace_search",
+        "kubectl",
+        "thread_dump",
+        "heap_histogram",
+        "gc_log",
+        "hikari_summary",
+    ]
     arguments: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")

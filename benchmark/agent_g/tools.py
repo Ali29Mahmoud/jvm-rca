@@ -173,3 +173,25 @@ class AgentGTools:
             ToolSpec("trace_search", "Search Jaeger traces by service, operation, and tags.", TraceSearchArgs, self.trace_search),
             ToolSpec("kubectl", "Run allowlisted read-only kubectl inspection commands.", KubectlArgs, self.kubectl),
         ]
+
+    def to_langchain_tools(self) -> list[Any]:
+        """Convert this toolset (including AgentJTools subclasses) into LangChain StructuredTools."""
+        from langchain_core.tools import StructuredTool
+
+        lc_tools: list[Any] = []
+        for spec in self.specs():
+            def _make_fn(s: ToolSpec):
+                def _run(**kwargs: Any) -> str:
+                    result = s.function(kwargs)
+                    return json.dumps(result.model_dump(), default=str)
+                return _run
+
+            lc_tools.append(
+                StructuredTool.from_function(
+                    func=_make_fn(spec),
+                    name=spec.name,
+                    description=spec.description,
+                    args_schema=spec.args_model,
+                )
+            )
+        return lc_tools

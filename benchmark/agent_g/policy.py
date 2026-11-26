@@ -12,6 +12,9 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any, Protocol
 
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+
 from benchmark.agent_g.models import AgentDecision
 from benchmark.agent_g.tools import ToolSpec
 
@@ -31,9 +34,12 @@ class OpenAICompatiblePolicy:
         self,
         tool_specs: list[ToolSpec],
         request_fn: Callable[[str, dict[str, str], dict[str, Any], int], dict[str, Any]] | None = None,
+        *,
+        agent_name: str = "Agent-G",
     ):
         self.tool_specs = tool_specs
-        self.request_fn = request_fn or self._post
+        self.request_fn = request_fn
+        self.agent_name = agent_name
         gemini_key = os.getenv("GEMINI_API_KEY")
         if not gemini_key and not os.getenv("BENCH_LLM_API_KEY") and not os.getenv("OPENAI_API_KEY"):
             # Automatically fetch from cluster secret if available
@@ -106,7 +112,7 @@ class OpenAICompatiblePolicy:
         available_eids = [item.get("evidence_id") for item in state.get("evidence", []) if "evidence_id" in item]
 
         prompt = (
-            f"You are Agent-G, a bounded read-only incident investigator.\n"
+            f"You are {self.agent_name}, a bounded read-only incident investigator.\n"
             f"CURRENT REQUIRED PHASE: '{required_phase}'. You MUST return JSON with \"phase\": \"{required_phase}\".\n\n"
             f"Return ONLY a flat JSON object (no wrapper key) with these fields:\n"
             f'  "phase": "{required_phase}"\n'
@@ -149,32 +155,68 @@ class OpenAICompatiblePolicy:
         if self.reasoning_effort:
             payload["reasoning_effort"] = self.reasoning_effort
         timeout = int(os.getenv("BENCH_LLM_TIMEOUT", "90"))
-        try:
-            response = self.request_fn(
-                f"{self.base_url}/chat/completions",
-                {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                payload,
-                timeout,
-            )
-        except Exception as exc:
-            if self.fallback_api_key and self.fallback_base_url and self.base_url != self.fallback_base_url:
-                fallback_payload = dict(payload)
-                fallback_payload["model"] = self.fallback_model
-                fallback_payload.pop("reasoning_effort", None)
+        if self.request_fn is not None:
+            try:
                 response = self.request_fn(
-                    f"{self.fallback_base_url}/chat/completions",
-                    {"Authorization": f"Bearer {self.fallback_api_key}", "Content-Type": "application/json"},
-                    fallback_payload,
+                    f"{self.base_url}/chat/completions",
+                    {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                    payload,
                     timeout,
                 )
-            else:
-                raise
-        try:
-            choice = response["choices"][0]
-            message = choice["message"]
-            content = message.get("content")
-        except (AttributeError, IndexError, KeyError, TypeError) as exc:
-            raise RuntimeError("LLM response did not contain choices[0].message.content") from exc
+            except Exception:
+                if self.fallback_api_key and self.fallback_base_url and self.base_url != self.fallback_base_url:
+                    fallback_payload = dict(payload)
+                    fallback_payload["model"] = self.fallback_model
+                    fallback_payload.pop("reasoning_effort", None)
+                    response = self.request_fn(
+                        f"{self.fallback_base_url}/chat/completions",
+                        {"Authorization": f"Bearer {self.fallback_api_key}", "Content-Type": "application/json"},
+                        fallback_payload,
+                        timeout,
+                    )
+                else:
+                    raise
+            try:
+                choice = response["choices"][0]
+                message = choice["message"]
+                content = message.get("content")
+            except (AttributeError, IndexError, KeyError, TypeError) as exc:
+                raise RuntimeError("LLM response did not contain choices[0].message.content") from exc
+        else:
+            llm_kwargs: dict[str, Any] = {
+                "model": self.model,
+                "api_key": self.api_key,
+                "base_url": self.base_url,
+                "temperature": 0,
+                "max_tokens": int(os.getenv("BENCH_LLM_MAX_TOKENS", "1200")),
+                "timeout": timeout,
+                "max_retries": 4,
+                "model_kwargs": {"response_format": {"type": "json_object"}},
+            }
+            if self.reasoning_effort:
+                llm_kwargs["reasoning_effort"] = self.reasoning_effort
+            llm: Any = ChatOpenAI(**llm_kwargs)
+            if self.fallback_api_key and self.fallback_base_url and self.base_url != self.fallback_base_url:
+                fallback_llm = ChatOpenAI(
+                    model=self.fallback_model,
+                    api_key=self.fallback_api_key,
+                    base_url=self.fallback_base_url,
+                    temperature=0,
+                    max_tokens=int(os.getenv("BENCH_LLM_MAX_TOKENS", "1200")),
+                    timeout=timeout,
+                    max_retries=4,
+                    model_kwargs={"response_format": {"type": "json_object"}},
+                )
+                llm = llm.with_fallbacks([fallback_llm])
+            ai_message = llm.invoke(
+                [
+                    SystemMessage(content="Return only JSON matching AgentDecision."),
+                    HumanMessage(content=prompt),
+                ]
+            )
+            content = ai_message.content
+            choice = {"finish_reason": ai_message.response_metadata.get("finish_reason", "unknown")}
+            message = {"refusal": ai_message.additional_kwargs.get("refusal")}
         if isinstance(content, list):
             content = "".join(
                 part["text"] for part in content

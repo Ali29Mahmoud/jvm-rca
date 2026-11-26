@@ -86,7 +86,10 @@ class AgentG:
                     continue
             results = []
             for call in decision.calls:
-                spec = self.tools[call.tool]
+                spec = self.tools.get(call.tool)
+                if spec is None:
+                    results.append({"tool": call.tool, "error": f"Unknown or disallowed tool: {call.tool}"})
+                    continue
                 try:
                     result = spec.function(call.arguments)
                     evidence.append(result)

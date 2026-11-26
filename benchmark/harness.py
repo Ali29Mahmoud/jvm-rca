@@ -79,8 +79,12 @@ def run(
             agent = control_agent or ControlAgent()
         elif agent_name == "agent-g":
             agent = agent_g or AgentGAdapter()
+        elif agent_name == "agent-j":
+            # Agent‑J extends Agent‑G with JVM diagnostic tools
+            from benchmark.agent_j import AgentJTools
+            agent = AgentGAdapter(tools=AgentJTools())
         else:
-            raise ValueError(f"Unknown agent {agent_name!r}; available agents: dummy, control, agent-g")
+            raise ValueError(f"Unknown agent {agent_name!r}; available agents: dummy, control, agent-g, agent-j")
         diagnosis, raw = agent.run(scenario)
         result.diagnosis = diagnosis
         result.raw_agent_output = raw
