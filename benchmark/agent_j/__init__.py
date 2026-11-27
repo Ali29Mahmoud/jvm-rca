@@ -14,10 +14,12 @@ from benchmark.agent_j.models import (
     HikariSummaryArgs,
     ThreadDumpArgs,
 )
+from benchmark.agent_j.runbook_retriever import BM25RunbookRetriever
 from benchmark.agent_j.tools import AgentJTools
 
 __all__ = [
     "AgentJTools",
+    "BM25RunbookRetriever",
     "GCLogArgs",
     "HeapHistogramArgs",
     "HikariSummaryArgs",

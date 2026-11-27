@@ -64,3 +64,4 @@ benchmark/results/runs.duckdb
 benchmark/__pycache__/harness.cpython-312.pyc
 __pycache__/
 *.pyc
+results/*

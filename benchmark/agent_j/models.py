@@ -62,3 +62,78 @@ class HikariSummaryArgs(StrictModel):
     @classmethod
     def reject_option_like_values(cls, value: str | None) -> str | None:
         return _reject_option_like(value, "service and namespace")
+
+
+class KafkaGroupDescribeArgs(StrictModel):
+    group: str = Field(min_length=1, max_length=253)
+    namespace: str = Field(default=DEFAULT_NAMESPACE, min_length=1, max_length=253, pattern=_K8S_NS_RE)
+    kafka_pod: str = Field(default="kafka", min_length=1, max_length=253, pattern=_K8S_NAME_RE)
+    bootstrap_server: str = Field(default="localhost:9092", min_length=1, max_length=253)
+
+    @field_validator("group", "namespace", "kafka_pod", "bootstrap_server")
+    @classmethod
+    def reject_option_like_values(cls, value: str) -> str:
+        return _reject_option_like(value, "kafka argument")  # type: ignore[return-value]
+
+
+class KafkaTopicOffsetsArgs(StrictModel):
+    topic: str = Field(min_length=1, max_length=253)
+    namespace: str = Field(default=DEFAULT_NAMESPACE, min_length=1, max_length=253, pattern=_K8S_NS_RE)
+    kafka_pod: str = Field(default="kafka", min_length=1, max_length=253, pattern=_K8S_NAME_RE)
+    bootstrap_server: str = Field(default="localhost:9092", min_length=1, max_length=253)
+
+    @field_validator("topic", "namespace", "kafka_pod", "bootstrap_server")
+    @classmethod
+    def reject_option_like_values(cls, value: str) -> str:
+        return _reject_option_like(value, "kafka argument")  # type: ignore[return-value]
+
+
+class KafkaPartitionSkewArgs(StrictModel):
+    topic: str | None = Field(default=None, min_length=1, max_length=253)
+    group: str | None = Field(default=None, min_length=1, max_length=253)
+    namespace: str = Field(default=DEFAULT_NAMESPACE, min_length=1, max_length=253, pattern=_K8S_NS_RE)
+    kafka_pod: str = Field(default="kafka", min_length=1, max_length=253, pattern=_K8S_NAME_RE)
+    bootstrap_server: str = Field(default="localhost:9092", min_length=1, max_length=253)
+
+
+class PgBaseArgs(StrictModel):
+    namespace: str = Field(default=DEFAULT_NAMESPACE, min_length=1, max_length=253, pattern=_K8S_NS_RE)
+    postgres_pod: str = Field(default="postgres", min_length=1, max_length=253, pattern=_K8S_NAME_RE)
+    database: str = Field(default="eventuate", min_length=1, max_length=128)
+    ro_user: str = Field(default="readonly", min_length=1, max_length=128)
+
+
+class PgStatActivityArgs(PgBaseArgs):
+    pass
+
+
+class PgBlockingTreeArgs(PgBaseArgs):
+    pass
+
+
+class PgStatStatementsArgs(PgBaseArgs):
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class PgExplainArgs(PgBaseArgs):
+    sql: str = Field(min_length=1, max_length=4000)
+
+
+class OutboxBacklogArgs(PgBaseArgs):
+    table: str = Field(default="eventuate.message", min_length=1, max_length=128)
+
+
+class ReplicationSlotLagArgs(PgBaseArgs):
+    pass
+
+
+class CdcLogsArgs(StrictModel):
+    target: str = Field(default="cdc-service", min_length=1, max_length=253, pattern=_K8S_NAME_RE)
+    namespace: str = Field(default=DEFAULT_NAMESPACE, min_length=1, max_length=253, pattern=_K8S_NS_RE)
+    tail: int = Field(default=500, ge=1, le=10000)
+    previous: bool = False
+
+
+class RunbookSearchArgs(StrictModel):
+    query: str = Field(min_length=1, max_length=500)
+    top_k: int = Field(default=3, ge=1, le=10)
